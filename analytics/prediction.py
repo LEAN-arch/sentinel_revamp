@@ -1,12 +1,13 @@
 # sentinel_project_root/analytics/prediction.py
 #
-# PLATINUM STANDARD - Predictive Modeling Engine
-# This module uses a trained machine learning model to generate patient risk scores,
-# replacing the previous brittle, rule-based system.
+# PLATINUM STANDARD - Predictive Modeling Engine (V2.2 - Re-Architected)
+# This module uses a complete, encapsulated scikit-learn Pipeline to generate
+# patient risk scores. This architecture guarantees consistency between training
+# and inference, eliminating a major class of production ML errors.
 
 import logging
 import pandas as pd
-from typing import Optional, Any
+from typing import Optional, Any, List
 
 # --- Core Application Imports ---
 try:
@@ -20,47 +21,46 @@ except ImportError as e:
 logger = logging.getLogger(__name__)
 
 # --- Module-level Model Cache ---
-# This lazy-loads the model once and caches it in memory for performance.
-_RISK_MODEL: Optional[Any] = None
-_MODEL_LOAD_ATTEMPTED: bool = False
+_RISK_PIPELINE: Optional[Any] = None
+_PIPELINE_LOAD_ATTEMPTED: bool = False
 
 
-def _get_risk_model() -> Optional[Any]:
+def _get_risk_pipeline() -> Optional[Any]:
     """
-    Loads the risk prediction model from disk, caching the result.
-    This function is for internal use by `predict_patient_risk`.
+    Loads the scikit-learn risk prediction pipeline from disk, caching the result.
+    The loaded object is expected to be a `sklearn.pipeline.Pipeline`.
     """
-    global _RISK_MODEL, _MODEL_LOAD_ATTEMPTED
+    global _RISK_PIPELINE, _PIPELINE_LOAD_ATTEMPTED
 
-    if _MODEL_LOAD_ATTEMPTED:
-        return _RISK_MODEL
+    if _PIPELINE_LOAD_ATTEMPTED:
+        return _RISK_PIPELINE
 
-    logger.info("First request for risk model. Attempting to load from disk...")
+    logger.info("First request for risk model pipeline. Attempting to load from disk...")
     model_path = settings.ml_models.risk_model_path
-    _RISK_MODEL = load_ml_model(model_path)
-    _MODEL_LOAD_ATTEMPTED = True
+    _RISK_PIPELINE = load_ml_model(model_path)
+    _PIPELINE_LOAD_ATTEMPTED = True
 
-    if _RISK_MODEL:
-        logger.info(f"Successfully loaded and cached risk model: {type(_RISK_MODEL)}")
+    if _RISK_PIPELINE:
+        logger.info(f"Successfully loaded and cached risk prediction pipeline: {type(_RISK_PIPELINE)}")
     else:
         logger.error(
-            f"Failed to load risk model from '{model_path}'. "
+            f"Failed to load risk prediction pipeline from '{model_path}'. "
             "Risk prediction will be disabled."
         )
-    return _RISK_MODEL
+    return _RISK_PIPELINE
 
 
 def predict_patient_risk(df_health: pd.DataFrame) -> pd.DataFrame:
     """
-    Predicts a patient's risk of an adverse outcome using a trained ML model.
+    Predicts patient risk using a fully encapsulated scikit-learn pipeline.
 
-    This function enriches the input DataFrame with a new column, 'ai_risk_score',
-    which is a numeric score from 0 to 100.
+    This function enriches the input DataFrame with a new column, 'ai_risk_score'.
+    It passes the DataFrame directly to the loaded pipeline, which handles all
+    necessary feature selection, scaling, and encoding internally.
 
     Args:
-        df_health: A DataFrame containing patient health records, which must
-                   have been processed by the `enrich_health_records_with_features`
-                   function to ensure required features are present.
+        df_health: A DataFrame of patient health records. It must contain the raw
+                   columns that the ML pipeline was trained on.
 
     Returns:
         The input DataFrame with the 'ai_risk_score' column added.
@@ -68,44 +68,54 @@ def predict_patient_risk(df_health: pd.DataFrame) -> pd.DataFrame:
     output_col = 'ai_risk_score'
     df_with_predictions = df_health.copy()
 
+    # Default to a null/NA score if prediction fails at any point
+    df_with_predictions[output_col] = pd.NA
+
     if not isinstance(df_health, pd.DataFrame) or df_health.empty:
         logger.warning("predict_patient_risk received an empty DataFrame. Returning as is.")
-        df_with_predictions[output_col] = pd.NA
         return df_with_predictions
 
-    model = _get_risk_model()
-    if not model:
-        logger.warning("Risk model not available. Assigning NA to risk scores.")
-        df_with_predictions[output_col] = pd.NA
+    pipeline = _get_risk_pipeline()
+    if not pipeline:
+        logger.warning("Risk prediction pipeline not available. Cannot generate scores.")
         return df_with_predictions
 
-    # --- Feature Preparation ---
-    # Ensure the prediction features are present and in the correct order.
-    features = settings.ml_models.risk_model_features
-    missing_features = set(features) - set(df_health.columns)
+    # --- Input Validation ---
+    # The pipeline object has an attribute that lists the feature names it expects.
+    # This is a robust way to check for required columns.
+    try:
+        expected_features: List[str] = pipeline.feature_names_in_
+    except AttributeError:
+        # Fallback for older scikit-learn versions or custom pipelines
+        logger.warning("Could not determine expected features from pipeline. Performing basic check.")
+        expected_features = settings.ml_models.risk_model_features
 
+    missing_features = set(expected_features) - set(df_health.columns)
     if missing_features:
         logger.error(
-            f"Cannot make predictions. The following required features are "
-            f"missing from the input DataFrame: {sorted(list(missing_features))}"
+            f"Cannot make predictions. Input DataFrame is missing required columns "
+            f"expected by the pipeline: {sorted(list(missing_features))}"
         )
-        df_with_predictions[output_col] = pd.NA
         return df_with_predictions
-
-    X_predict = df_health[features]
 
     # --- Prediction ---
     try:
+        # The magic of the pipeline: pass the DataFrame, and it handles everything.
+        # We only need to provide the columns the pipeline was trained on.
+        X_predict = df_health[expected_features]
+        
         # `predict_proba` returns probabilities for each class: [class_0, class_1].
         # We want the probability of the positive class (high risk), which is at index 1.
-        risk_probabilities = model.predict_proba(X_predict)[:, 1]
+        risk_probabilities = pipeline.predict_proba(X_predict)[:, 1]
 
         # Scale the probability (0.0 to 1.0) to a user-friendly 0-100 score.
         df_with_predictions[output_col] = (risk_probabilities * 100).astype(int)
-        logger.info(f"Successfully generated {len(df_with_predictions)} AI risk scores.")
+        logger.info(f"Successfully generated {len(df_with_predictions)} AI risk scores using the pipeline.")
 
+    except ValueError as ve:
+        logger.error(f"A ValueError occurred during prediction, often due to data type "
+                     f"or format issues that the pipeline could not handle. Error: {ve}", exc_info=True)
     except Exception as e:
-        logger.error(f"An error occurred during risk score prediction: {e}", exc_info=True)
-        df_with_predictions[output_col] = pd.NA
+        logger.error(f"An unexpected error occurred during risk score prediction: {e}", exc_info=True)
 
     return df_with_predictions
