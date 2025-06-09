@@ -65,23 +65,34 @@ def aggregate_zonal_stats(
             df_merged = pd.merge(df_merged, lab_agg, on='zone_id', how='left')
 
     # --- THE FIX: Join program data with health context to get zone_id ---
-    if not df_program.empty and not health_context.empty:
-        # Program data is by patient, not encounter, so join on patient_id
-        program_context = health_context[['patient_id', 'zone_id']].drop_duplicates(subset=['patient_id'])
-        df_program_with_zone = pd.merge(df_program, program_context, on='patient_id', how='left').dropna(subset=['zone_id'])
+    if not df_program.empty and not df_health.empty:
+        # Program data is by patient, so we need to get the zone for each patient.
+        # We take the most recent zone_id for each patient from the health records.
+        patient_zones = df_health.sort_values('encounter_date').drop_duplicates('patient_id', keep='last')[['patient_id', 'zone_id']]
+        
+        # Merge this zone context into the program data
+        df_program_with_zone = pd.merge(df_program, patient_zones, on='patient_id', how='left').dropna(subset=['zone_id'])
         
         if not df_program_with_zone.empty:
+            # Enrich the program data with boolean flags
+            df_program_with_zone['is_linked_to_care_hiv'] = (df_program_with_zone['program_name'] == 'HIV Care') & (pd.to_datetime(df_program_with_zone['treatment_start_date'], errors='coerce').notna())
+            df_program_with_zone['is_treatment_success_tb'] = (df_program_with_zone['program_name'] == 'Tuberculosis Care') & (df_program_with_zone['outcome'] == 'Treatment Completed')
+
+            # Now aggregate the enriched program data by zone
             program_agg = df_program_with_zone.groupby('zone_id').agg(
                 hiv_linkage_rate=('is_linked_to_care_hiv', 'mean'),
                 tb_treatment_success_rate=('is_treatment_success_tb', 'mean')).reset_index()
+            
             program_agg['hiv_linkage_rate'] = (program_agg['hiv_linkage_rate'] * 100).fillna(0)
             program_agg['tb_treatment_success_rate'] = (program_agg['tb_treatment_success_rate'] * 100).fillna(0)
+            
             df_merged = pd.merge(df_merged, program_agg, on='zone_id', how='left')
 
     numeric_cols = df_merged.select_dtypes(include=np.number).columns.tolist()
     for col in numeric_cols:
         if col not in df_zones.columns:
             df_merged[col] = df_merged[col].fillna(0)
+            
     return df_merged
 
 def aggregate_district_stats(df_zonal_agg: pd.DataFrame) -> Dict[str, Any]:
