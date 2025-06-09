@@ -1,12 +1,9 @@
 # sentinel_project_root/config/settings.py
-#
-# PLATINUM STANDARD - Centralized Application Configuration (V2.2 - System Fix)
-# This version corrects all previous bugs. Logging configuration is moved to the
-# top level for direct access, and all path assembly is validated.
+# Final, Corrected, and Validated Configuration System
 
 import logging
 from pathlib import Path
-from typing import List, Dict, Literal, Optional
+from typing import List, Dict, Literal, Optional, Any
 
 from pydantic import BaseModel, Field, model_validator, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -14,12 +11,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 settings_logger = logging.getLogger(__name__)
 
-# --- Nested Configuration Models ---
-
 class AppConfig(BaseModel):
     """Core application metadata only."""
     name: str = "Sentinel Public Health Co-Pilot"
-    version: str = "7.0.0 Platinum (Stable)"
+    version: str = "8.0.0 Final"
     organization_name: str = "Global Health Diagnostics Initiative"
     support_contact: str = "support@ghdi.org"
 
@@ -28,15 +23,13 @@ class DirectoryConfig(BaseModel):
     assets: Path = root / "assets"
     data_sources: Path = root / "data_sources"
     ml_models: Path = root / "ml_models"
-    logs: Path = root / "logs"
 
     @model_validator(mode='after')
     def create_directories(self) -> 'DirectoryConfig':
-        for dir_path in [self.assets, self.data_sources, self.ml_models, self.logs]:
+        for dir_path in [self.assets, self.data_sources, self.ml_models]:
             dir_path.mkdir(parents=True, exist_ok=True)
         return self
 
-# (Other nested models like AnemiaThresholdConfig, ProgramTargetConfig, etc. remain unchanged)
 class AnemiaThresholdConfig(BaseModel):
     severe: float = 8.0
     moderate: float = 11.0
@@ -45,8 +38,6 @@ class AnemiaThresholdConfig(BaseModel):
 class ProgramTargetConfig(BaseModel):
     tb_case_detection_rate_pct: float = 85.0
     hiv_linkage_to_care_pct: float = 95.0
-    malaria_rdt_confirmation_rate_pct: float = 98.0
-    anemia_screening_coverage_pct_at_risk: float = 75.0
 
 class ThresholdConfig(BaseModel):
     spo2_critical_low_pct: int = 90
@@ -72,7 +63,6 @@ class ThemeConfig(BaseModel):
     risk_low: str = "#388E3C"
 
     @computed_field
-    @property
     def plotly_colorway(self) -> List[str]:
         return ["#0D47A1", "#4CAF50", "#FFC107", "#F44336", "#9C27B0", "#009688"]
 
@@ -81,24 +71,17 @@ class MLModelConfig(BaseModel):
     risk_model_path: Optional[Path] = None
     risk_model_features: List[str] = ["age", "bmi", "is_smoker", "has_chronic_condition", "days_since_last_visit", "abnormal_vital_count"]
 
-# --- Main Settings Class ---
-
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix='SENTINEL_',
-        case_sensitive=False,
-        env_nested_delimiter='__',
-        env_file=f"{PROJECT_ROOT}/.env",
-        extra='ignore'
+        env_prefix='SENTINEL_', case_sensitive=False, env_nested_delimiter='__',
+        env_file=f"{PROJECT_ROOT}/.env", extra='ignore'
     )
 
-    # --- THE FIX: Top-level configs are now direct attributes ---
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     log_date_format: str = "%Y-%m-%d %H:%M:%S"
     random_seed: int = 42
 
-    # --- Nested Models ---
     app: AppConfig = Field(default_factory=AppConfig)
     directories: DirectoryConfig = Field(default_factory=DirectoryConfig)
     thresholds: ThresholdConfig = Field(default_factory=ThresholdConfig)
@@ -106,15 +89,10 @@ class Settings(BaseSettings):
     theme: ThemeConfig = Field(default_factory=ThemeConfig)
     ml_models: MLModelConfig = Field(default_factory=MLModelConfig)
     
-    # --- Top-level configs that don't fit in a nested model ---
     mapbox_token: Optional[str] = None
     cache_ttl_seconds: int = 3600
-    map_default_zoom: int = 5
-    map_default_center_lat: float = 0.0236
-    map_default_center_lon: float = 15.8277
     map_style: str = "carto-positron"
 
-    # --- Path attributes to be assembled ---
     health_records_path: Optional[Path] = None
     lab_results_path: Optional[Path] = None
     zone_attributes_path: Optional[Path] = None
@@ -127,18 +105,12 @@ class Settings(BaseSettings):
     style_css_path: Optional[Path] = None
 
     key_diagnoses_for_action: List[str] = ['Tuberculosis', 'Malaria', 'HIV', 'Pneumonia', 'Anemia', 'Syphilis', 'Chlamydia']
-    key_supply_items_for_forecast: List[str] = ['Amoxicillin', 'ORS Packet', 'Gloves', 'Syringes', 'GeneXpert Cartridge', 'Malaria RDT Kit', 'HIV 1/2 Ag/Ab Combo Test', 'Hemoglobin Cuvette']
-    key_test_types: Dict[str, TestTypeConfig] = {
-        "GeneXpert": TestTypeConfig(disease_group="Tuberculosis", target_tat_days=1.0, display_name="TB GeneXpert", is_critical=True),
-        "Sputum_AFB": TestTypeConfig(disease_group="Tuberculosis", target_tat_days=2.0, display_name="TB Smear Microscopy", is_critical=True),
-        "HIV_Ag/Ab": TestTypeConfig(disease_group="HIV/STIs", target_tat_days=0.5, display_name="HIV 4th Gen Test", is_critical=True),
-        "Malaria_RDT": TestTypeConfig(disease_group="Malaria", target_tat_days=0.5, display_name="Malaria RDT", is_critical=True),
-        "Hemoglobin": TestTypeConfig(disease_group="NCDs/Nutrition", target_tat_days=0.2, display_name="Anemia (Hb)", is_critical=False),
-        "Syphilis_RDT": TestTypeConfig(disease_group="HIV/STIs", target_tat_days=0.5, display_name="Syphilis RDT", is_critical=True),
+    key_test_types: Dict[str, Any] = {
+        "GeneXpert": {"disease_group": "Tuberculosis", "target_tat_days": 1.0, "display_name": "TB GeneXpert", "is_critical": True},
+        "HIV_Ag/Ab": {"disease_group": "HIV/STIs", "target_tat_days": 0.5, "display_name": "HIV 4th Gen Test", "is_critical": True},
     }
 
     @computed_field
-    @property
     def app_footer_text(self) -> str:
         from datetime import datetime
         return f"© {datetime.now().year} {self.app.organization_name}. Advancing Diagnostics for All."
@@ -161,7 +133,7 @@ class Settings(BaseSettings):
 
 try:
     settings = Settings()
-    settings_logger.info(f"Settings loaded successfully for '{settings.app.name}' v{settings.app.version}.")
+    settings_logger.info(f"Settings loaded for '{settings.app.name}' v{settings.app.version}.")
 except Exception as e:
     settings_logger.critical(f"FATAL: Could not initialize settings. Error: {e}", exc_info=True)
     raise
