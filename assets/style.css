@@ -1,0 +1,127 @@
+/* sentinel_project_root/assets/style.css */
+/* PLATINUM STANDARD - Global Stylesheet for Sentinel Co-Pilot */
+
+/* --- 1. Root Variables (Single Source of Truth for Theme) --- */
+/* These are automatically populated from the config/settings.py file, but can be hardcoded here for simplicity if preferred */
+:root {
+    --sentinel-font-family: 'sans-serif', 'Arial', sans-serif;
+    --sentinel-color-primary: #0D47A1;            /* Deep Blue */
+    --sentinel-color-background: #F0F2F6;        /* Light Gray */
+    --sentinel-color-secondary-background: #FFFFFF; /* White */
+    --sentinel-color-text: #263238;               /* Dark Gray */
+
+    --sentinel-color-risk-high: #D32F2F;        /* Red */
+    --sentinel-color-risk-moderate: #FFA000;    /* Amber */
+    --sentinel-color-risk-low: #388E3C;         /* Green */
+    
+    --sentinel-border-radius: 8px;
+    --sentinel-box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+}
+
+/* --- 2. Global Style Resets & Enhancements --- */
+
+body {
+    font-family: var(--sentinel-font-family);
+    color: var(--sentinel-color-text);
+}
+
+h1, h2, h3, h4, h5, h6 {
+    font-family: var(--sentinel-font-family);
+}
+
+/* Main Streamlit container styling for a cleaner look */
+.main .block-container {
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+    padding-left: 2rem;
+    padding-right: 2rem;
+}
+
+/* Sidebar styling for better visual hierarchy */
+.st-emotion-cache-16txtl3 { /* This targets the sidebar content area */
+    background-color: var(--sentinel-color-secondary-background);
+}
+
+
+/* --- 3. Custom Component Styling --- */
+/* While the redesign uses native st.metric, these classes are provided for
+   any potential future custom HTML components to ensure consistency. */
+
+/* KPI Card Styling (if custom HTML is ever used) */
+.kpi-card {
+    background-color: var(--sentinel-color-secondary-background);
+    padding: 1.5rem;
+    border-radius: var(--sentinel-border-radius);
+    box-shadow: var(--sentinel-box-shadow);
+    transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+    border-left: 5px solid var(--sentinel-color-primary);
+    height: 100%;
+}
+
+.kpi-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 15px rgba(0, 0, 0, 0.08);
+}
+
+.kpi-card h3 {
+    margin-top: 0;
+    font-size: 1.1rem;
+    color: #616161; /* Muted text color for titles */
+}
+
+.kpi-card p {
+    font-size: 2.5rem;
+    font-weight: 600;
+    margin: 0;
+    line-height: 1.2;
+}
+
+/* --- 4. Streamlit Widget Overrides --- */
+/* Style the buttons to match the primary theme color */
+.stButton>button {
+    background-color: var(--sentinel-color-primary);
+    color: white;
+    border-radius: var(--sentinel-border-radius);
+    border: none;
+    padding: 0.75rem 1.5rem;
+}
+.stButton>button:hover {
+    background-color: #0b3a8a; /* A slightly darker shade for hover */
+    color: white;
+    border: none;
+}
+.stButton>button:focus {
+    box-shadow: 0 0 0 2px var(--sentinel-color-background), 0 0 0 4px var(--sentinel-color-primary);
+    outline: none;
+}
+
+
+/* Style Streamlit's container border to match our theme */
+[data-testid="stVerticalBlock"] > [data-testid="stHorizontalBlock"] > .st-emotion-cache-12w0qpk{
+    border-color: #e0e0e0;
+}
+
+/* Enhance the st.expander for a cleaner look */
+.st-emotion-cache-p5msec {
+    border: 1px solid #e0e0e0;
+    box-shadow: none;
+}
+.st-emotion-cache-p5msec:hover {
+    border-color: var(--sentinel-color-primary);
+}
+
+
+/* Enhance metric display */
+[data-testid="stMetric"] {
+    background-color: var(--sentinel-color-secondary-background);
+    padding: 1rem;
+    border-radius: var(--sentinel-border-radius);
+    box-shadow: var(--sentinel-box-shadow);
+}
+[data-testid="stMetricLabel"] {
+    font-size: 1rem;
+    color: #424242;
+}
+[data-testid="stMetricValue"] {
+    font-size: 2rem;
+}
