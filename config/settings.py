@@ -1,8 +1,8 @@
 # sentinel_project_root/config/settings.py
 #
-# PLATINUM STANDARD - Centralized Application Configuration (V2 - Public Health Mission Upgrade)
-# This file is enhanced to support a wide range of infectious diseases and public
-# health programs, turning the system into a true epidemiological tool.
+# PLATINUM STANDARD - Centralized Application Configuration (V2.1 - Corrected)
+# This version corrects a critical initialization bug by using a Pydantic
+# model_validator to properly assemble interdependent file paths.
 
 import logging
 from pathlib import Path
@@ -14,11 +14,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 settings_logger = logging.getLogger(__name__)
 
-# --- Nested Configuration Models ---
+# --- Nested Configuration Models (Structure remains the same) ---
 
 class AppConfig(BaseModel):
     name: str = "Sentinel Public Health Co-Pilot"
-    version: str = "6.0.0 Platinum"
+    version: str = "6.1.0 Platinum Corrected"
     organization_name: str = "Global Health Diagnostics Initiative"
     support_contact: str = "support@ghdi.org"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
@@ -39,13 +39,11 @@ class DirectoryConfig(BaseModel):
         return self
 
 class AnemiaThresholdConfig(BaseModel):
-    """WHO-based anemia thresholds by Hemoglobin (g/dL) for non-pregnant adults."""
     severe: float = 8.0
     moderate: float = 11.0
     mild: float = 12.0
 
 class ProgramTargetConfig(BaseModel):
-    """Defines strategic public health program targets."""
     tb_case_detection_rate_pct: float = 85.0
     hiv_linkage_to_care_pct: float = 95.0
     malaria_rdt_confirmation_rate_pct: float = 98.0
@@ -73,14 +71,15 @@ class ThemeConfig(BaseModel):
     risk_high: str = "#D32F2F"
     risk_moderate: str = "#FFA000"
     risk_low: str = "#388E3C"
-
+    
     @computed_field
     @property
     def plotly_colorway(self) -> List[str]:
         return ["#0D47A1", "#4CAF50", "#FFC107", "#F44336", "#9C27B0", "#009688"]
 
 class MLModelConfig(BaseModel):
-    risk_model_path: Path = DirectoryConfig().ml_models / "sentinel_risk_model_v1.joblib"
+    risk_model_filename: str = "sentinel_risk_model_v1.joblib"
+    risk_model_path: Optional[Path] = None  # This will be assembled by the validator
     risk_model_features: List[str] = ["age", "bmi", "is_smoker", "has_chronic_condition", "days_since_last_visit", "abnormal_vital_count"]
 
 # --- Main Settings Class ---
@@ -94,31 +93,35 @@ class Settings(BaseSettings):
         extra='ignore'
     )
 
+    # --- Nested Models ---
     app: AppConfig = Field(default_factory=AppConfig)
     directories: DirectoryConfig = Field(default_factory=DirectoryConfig)
     thresholds: ThresholdConfig = Field(default_factory=ThresholdConfig)
     targets: ProgramTargetConfig = Field(default_factory=ProgramTargetConfig)
     theme: ThemeConfig = Field(default_factory=ThemeConfig)
     ml_models: MLModelConfig = Field(default_factory=MLModelConfig)
-
     mapbox_token: Optional[str] = None
-
-    health_records_path: Path = directories.data_sources / "health_records_synthetic.csv"
-    lab_results_path: Path = directories.data_sources / "lab_results_synthetic.csv"
-    zone_attributes_path: Path = directories.data_sources / "zone_attributes.csv"
-    zone_geometries_path: Path = directories.data_sources / "zone_geometries.geojson"
-    supply_utilization_path: Path = directories.data_sources / "supply_utilization_synthetic.csv"
-
-    app_logo_large_path: Path = directories.assets / "sentinel_logo_large.png"
-    style_css_path: Path = directories.assets / "style.css"
-
-    key_diagnoses_for_action: List[str] = [
-        'Tuberculosis', 'Malaria', 'HIV', 'Pneumonia', 'Anemia', 'Syphilis', 'Chlamydia'
-    ]
-    key_supply_items_for_forecast: List[str] = [
-        'Amoxicillin', 'ORS Packet', 'Gloves', 'Syringes', 'GeneXpert Cartridge',
-        'Malaria RDT Kit', 'HIV 1/2 Ag/Ab Combo Test', 'Hemoglobin Cuvette'
-    ]
+    cache_ttl_seconds: int = 3600
+    map_default_zoom: int = 5
+    map_default_center_lat: float = 0.0236
+    map_default_center_lon: float = 15.8277
+    map_style: str = "carto-positron"
+    
+    # --- DECLARE PATHS (to be assembled by validator) ---
+    health_records_path: Optional[Path] = None
+    lab_results_path: Optional[Path] = None
+    zone_attributes_path: Optional[Path] = None
+    zone_geometries_path: Optional[Path] = None
+    supply_utilization_path: Optional[Path] = None
+    program_outcomes_path: Optional[Path] = None
+    contact_tracing_path: Optional[Path] = None
+    ntd_mda_path: Optional[Path] = None
+    app_logo_large_path: Optional[Path] = None
+    style_css_path: Optional[Path] = None
+    
+    # --- Semantic Definitions (can be defined directly) ---
+    key_diagnoses_for_action: List[str] = ['Tuberculosis', 'Malaria', 'HIV', 'Pneumonia', 'Anemia', 'Syphilis', 'Chlamydia']
+    key_supply_items_for_forecast: List[str] = ['Amoxicillin', 'ORS Packet', 'Gloves', 'Syringes', 'GeneXpert Cartridge', 'Malaria RDT Kit', 'HIV 1/2 Ag/Ab Combo Test', 'Hemoglobin Cuvette']
     key_test_types: Dict[str, TestTypeConfig] = {
         "GeneXpert": TestTypeConfig(disease_group="Tuberculosis", target_tat_days=1.0, display_name="TB GeneXpert", is_critical=True),
         "Sputum_AFB": TestTypeConfig(disease_group="Tuberculosis", target_tat_days=2.0, display_name="TB Smear Microscopy", is_critical=True),
@@ -128,22 +131,45 @@ class Settings(BaseSettings):
         "Syphilis_RDT": TestTypeConfig(disease_group="HIV/STIs", target_tat_days=0.5, display_name="Syphilis RDT", is_critical=True),
     }
 
-    cache_ttl_seconds: int = 3600
-    map_default_zoom: int = 5
-    map_default_center_lat: float = 0.0236  # Central Africa
-    map_default_center_lon: float = 15.8277 # Central Africa
-    map_style: str = "carto-positron"
-
     @computed_field
     @property
     def app_footer_text(self) -> str:
         from datetime import datetime
         return f"© {datetime.now().year} {self.app.organization_name}. Advancing Diagnostics for All."
 
+    # --- THE FIX: This validator runs after initialization ---
+    @model_validator(mode='after')
+    def assemble_paths(self) -> 'Settings':
+        """Assembles the full, absolute paths after the base directories are known."""
+        data_dir = self.directories.data_sources
+        asset_dir = self.directories.assets
+        ml_dir = self.directories.ml_models
+
+        # Assemble data source paths
+        self.health_records_path = data_dir / "health_records_synthetic.csv"
+        self.lab_results_path = data_dir / "lab_results_synthetic.csv"
+        self.zone_attributes_path = data_dir / "zone_attributes.csv"
+        self.zone_geometries_path = data_dir / "zone_geometries.geojson"
+        self.supply_utilization_path = data_dir / "supply_utilization_synthetic.csv"
+        self.program_outcomes_path = data_dir / "program_outcomes_synthetic.csv"
+        self.contact_tracing_path = data_dir / "contact_tracing_synthetic.csv"
+        self.ntd_mda_path = data_dir / "ntd_mda_synthetic.csv"
+
+        # Assemble asset paths
+        self.app_logo_large_path = asset_dir / "sentinel_logo_large.png"
+        self.style_css_path = asset_dir / "style.css"
+
+        # Assemble ML model path
+        self.ml_models.risk_model_path = ml_dir / self.ml_models.risk_model_filename
+
+        return self
+
 # --- Singleton Instance ---
 try:
     settings = Settings()
-    settings_logger.info(f"Settings loaded for Public Health mission: '{settings.app.name}' v{settings.app.version}.")
+    settings_logger.info(f"Settings loaded successfully for '{settings.app.name}' v{settings.app.version}.")
+    if not settings.mapbox_token:
+        settings_logger.warning("Mapbox token not found. Maps will use a basic style.")
 except Exception as e:
-    settings_logger.critical(f"FATAL: Could not initialize settings for Public Health mission. Error: {e}", exc_info=True)
+    settings_logger.critical(f"FATAL: Could not initialize settings. Error: {e}", exc_info=True)
     raise
