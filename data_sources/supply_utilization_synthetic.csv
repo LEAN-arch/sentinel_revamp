@@ -1,0 +1,13 @@
+report_date,item_name,consumption_count,stock_on_hand,zone_id
+2024-05-09,GeneXpert Cartridge,5,150,ZN-03
+2024-05-09,Malaria RDT Kit,45,850,ZN-01
+2024-05-10,GeneXpert Cartridge,8,142,ZN-03
+2024-05-10,Malaria RDT Kit,52,798,ZN-01
+2024-05-10,HIV 1/2 Ag/Ab Combo Test,35,450,ZN-04
+2024-05-10,Hemoglobin Cuvette,22,210,ZN-06
+2024-05-11,GeneXpert Cartridge,6,136,ZN-03
+2024-05-11,Malaria RDT Kit,68,730,ZN-01
+2024-05-11,HIV 1/2 Ag/Ab Combo Test,28,422,ZN-04
+2024-05-11,Hemoglobin Cuvette,31,179,ZN-06
+2024-05-12,HIV 1/2 Ag/Ab Combo Test,31,391,ZN-04
+2024-05-12,Syringes,150,5500,ZN-04
