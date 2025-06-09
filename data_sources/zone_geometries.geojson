@@ -1,0 +1,35 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "zone_id": "ZN-01", "name": "Kwale Coastal" },
+      "geometry": { "type": "Polygon", "coordinates": [ [ [ 39.5, -4.2 ], [ 39.7, -4.2 ], [ 39.7, -4.0 ], [ 39.5, -4.0 ], [ 39.5, -4.2 ] ] ] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "zone_id": "ZN-02", "name": "Vihiga Highlands" },
+      "geometry": { "type": "Polygon", "coordinates": [ [ [ 34.7, 0.1 ], [ 34.8, 0.1 ], [ 34.8, 0.2 ], [ 34.7, 0.2 ], [ 34.7, 0.1 ] ] ] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "zone_id": "ZN-03", "name": "Turkana North" },
+      "geometry": { "type": "Polygon", "coordinates": [ [ [ 35.5, 3.5 ], [ 35.8, 3.5 ], [ 35.8, 3.8 ], [ 35.5, 3.8 ], [ 35.5, 3.5 ] ] ] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "zone_id": "ZN-04", "name": "Nairobi Urban Core" },
+      "geometry": { "type": "Polygon", "coordinates": [ [ [ 36.8, -1.3 ], [ 36.9, -1.3 ], [ 36.9, -1.2 ], [ 36.8, -1.2 ], [ 36.8, -1.3 ] ] ] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "zone_id": "ZN-05", "name": "Garissa Aridlands" },
+      "geometry": { "type": "Polygon", "coordinates": [ [ [ 40.0, -0.5 ], [ 40.5, -0.5 ], [ 40.5, 0.0 ], [ 40.0, 0.0 ], [ 40.0, -0.5 ] ] ] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "zone_id": "ZN-06", "name": "Kisii Central" },
+      "geometry": { "type": "Polygon", "coordinates": [ [ [ 34.7, -0.7 ], [ 34.9, -0.7 ], [ 34.9, -0.5 ], [ 34.7, -0.5 ], [ 34.7, -0.7 ] ] ] }
+    }
+  ]
+}
