@@ -46,11 +46,7 @@ def aggregate_zonal_stats(
     if df_zones.empty: return pd.DataFrame()
 
     df_merged = df_zones.copy()
-
-    # Create a health context dataframe with only necessary columns for joining
-    health_context = pd.DataFrame()
-    if 'encounter_id' in df_health.columns and 'zone_id' in df_health.columns:
-        health_context = df_health[['encounter_id', 'zone_id']].drop_duplicates()
+    health_context = df_health[['encounter_id', 'zone_id', 'patient_id']].drop_duplicates()
 
     if not df_health.empty:
         health_agg = df_health.groupby('zone_id').agg(
@@ -59,30 +55,21 @@ def aggregate_zonal_stats(
         df_merged = pd.merge(df_merged, health_agg, on='zone_id', how='left')
 
     if not df_labs.empty and not health_context.empty:
-        df_labs_with_zone = pd.merge(df_labs, health_context, on='encounter_id', how='left').dropna(subset=['zone_id'])
-        
+        df_labs_with_zone = pd.merge(df_labs, health_context[['encounter_id', 'zone_id']], on='encounter_id', how='left').dropna(subset=['zone_id'])
         if not df_labs_with_zone.empty:
             lab_agg = df_labs_with_zone.groupby('zone_id').agg(
                 avg_tat_days=('turn_around_time_days', 'mean'),
                 total_tests_processed=('test_id', 'nunique'),
                 rejection_rate=('is_rejected', 'mean')).reset_index()
             lab_agg['rejection_rate'] = (lab_agg['rejection_rate'] * 100).fillna(0)
-
-            # --- THE FIX: Create is_positive flag before aggregation ---
-            df_labs_with_zone['is_positive'] = (df_labs_with_zone['test_result'] == 'Positive')
-
-            for test_key in settings.key_test_types.keys():
-                positivity_df = df_labs_with_zone[df_labs_with_zone['test_name'] == test_key]
-                if not positivity_df.empty:
-                    positivity_agg = positivity_df.groupby('zone_id')['is_positive'].mean().reset_index()
-                    positivity_agg.rename(columns={'is_positive': f'positivity_{test_key.lower()}'}, inplace=True)
-                    lab_agg = pd.merge(lab_agg, positivity_agg, on='zone_id', how='left')
-            
             df_merged = pd.merge(df_merged, lab_agg, on='zone_id', how='left')
 
-    if not df_program.empty:
-        # Assuming program data is joined similarly if it doesn't have zone_id
-        df_program_with_zone = pd.merge(df_program, df_health[['patient_id', 'zone_id']].drop_duplicates(subset=['patient_id']), on='patient_id', how='left').dropna(subset=['zone_id'])
+    # --- THE FIX: Join program data with health context to get zone_id ---
+    if not df_program.empty and not health_context.empty:
+        # Program data is by patient, not encounter, so join on patient_id
+        program_context = health_context[['patient_id', 'zone_id']].drop_duplicates(subset=['patient_id'])
+        df_program_with_zone = pd.merge(df_program, program_context, on='patient_id', how='left').dropna(subset=['zone_id'])
+        
         if not df_program_with_zone.empty:
             program_agg = df_program_with_zone.groupby('zone_id').agg(
                 hiv_linkage_rate=('is_linked_to_care_hiv', 'mean'),
@@ -95,7 +82,6 @@ def aggregate_zonal_stats(
     for col in numeric_cols:
         if col not in df_zones.columns:
             df_merged[col] = df_merged[col].fillna(0)
-            
     return df_merged
 
 def aggregate_district_stats(df_zonal_agg: pd.DataFrame) -> Dict[str, Any]:
