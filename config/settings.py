@@ -1,5 +1,5 @@
 # sentinel_project_root/config/settings.py
-# Final, Corrected, and Validated Configuration System
+# Corrected version.
 
 import logging
 from pathlib import Path
@@ -12,9 +12,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 settings_logger = logging.getLogger(__name__)
 
 class AppConfig(BaseModel):
-    """Core application metadata only."""
     name: str = "Sentinel Public Health Co-Pilot"
-    version: str = "8.0.0 Final"
+    version: str = "8.0.1 Final"
     organization_name: str = "Global Health Diagnostics Initiative"
     support_contact: str = "support@ghdi.org"
 
@@ -41,6 +40,7 @@ class ProgramTargetConfig(BaseModel):
 
 class ThresholdConfig(BaseModel):
     spo2_critical_low_pct: int = 90
+    body_temp_high_fever_c: float = 39.0  # <<< THE FIX: Attribute re-added.
     risk_score_high: int = 75
     supply_critical_days: int = 10
     lab_rejection_rate_target_pct: float = 3.0
@@ -76,23 +76,19 @@ class Settings(BaseSettings):
         env_prefix='SENTINEL_', case_sensitive=False, env_nested_delimiter='__',
         env_file=f"{PROJECT_ROOT}/.env", extra='ignore'
     )
-
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     log_date_format: str = "%Y-%m-%d %H:%M:%S"
     random_seed: int = 42
-
     app: AppConfig = Field(default_factory=AppConfig)
     directories: DirectoryConfig = Field(default_factory=DirectoryConfig)
     thresholds: ThresholdConfig = Field(default_factory=ThresholdConfig)
     targets: ProgramTargetConfig = Field(default_factory=ProgramTargetConfig)
     theme: ThemeConfig = Field(default_factory=ThemeConfig)
     ml_models: MLModelConfig = Field(default_factory=MLModelConfig)
-    
     mapbox_token: Optional[str] = None
     cache_ttl_seconds: int = 3600
     map_style: str = "carto-positron"
-
     health_records_path: Optional[Path] = None
     lab_results_path: Optional[Path] = None
     zone_attributes_path: Optional[Path] = None
@@ -103,18 +99,15 @@ class Settings(BaseSettings):
     ntd_mda_path: Optional[Path] = None
     app_logo_large_path: Optional[Path] = None
     style_css_path: Optional[Path] = None
-
     key_diagnoses_for_action: List[str] = ['Tuberculosis', 'Malaria', 'HIV', 'Pneumonia', 'Anemia', 'Syphilis', 'Chlamydia']
     key_test_types: Dict[str, Any] = {
         "GeneXpert": {"disease_group": "Tuberculosis", "target_tat_days": 1.0, "display_name": "TB GeneXpert", "is_critical": True},
         "HIV_Ag/Ab": {"disease_group": "HIV/STIs", "target_tat_days": 0.5, "display_name": "HIV 4th Gen Test", "is_critical": True},
     }
-
     @computed_field
     def app_footer_text(self) -> str:
         from datetime import datetime
         return f"© {datetime.now().year} {self.app.organization_name}. Advancing Diagnostics for All."
-
     @model_validator(mode='after')
     def assemble_paths(self) -> 'Settings':
         data_dir, asset_dir, ml_dir = self.directories.data_sources, self.directories.assets, self.directories.ml_models
