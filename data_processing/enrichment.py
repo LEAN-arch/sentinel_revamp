@@ -1,5 +1,5 @@
 # sentinel_project_root/data_processing/enrichment.py
-# Corrected version.
+# Corrected and final version.
 
 import logging
 import pandas as pd
@@ -22,29 +22,39 @@ def enrich_lab_results_with_features(df_labs: pd.DataFrame, df_program: pd.DataF
 
     df = df_labs.copy()
 
+    # Calculate Turnaround Time
     if 'result_date' in df.columns and 'sample_collection_date' in df.columns:
         df['turn_around_time_days'] = (df['result_date'] - df['sample_collection_date']).dt.total_seconds() / (24 * 3600)
         df['turn_around_time_days'] = df['turn_around_time_days'].clip(lower=0)
+    else:
+        df['turn_around_time_days'] = np.nan
 
+    # --- THE FIX: Programmatically create the 'test_status' column ---
+    conditions = [
+        df['is_rejected'] == True,
+        df['result_date'].notna()
+    ]
+    choices = ['Rejected', 'Completed']
+    df['test_status'] = np.select(conditions, choices, default='Pending')
+
+
+    # Classify Clinical Severity (e.g., Anemia)
     if 'test_name' in df.columns and 'result_value' in df.columns:
         anemia_mask = df['test_name'].str.contains("Hemoglobin", case=False, na=False)
         hb_values = pd.to_numeric(df.loc[anemia_mask, 'result_value'], errors='coerce')
-        conditions = [
+        severity_conditions = [
             hb_values < settings.thresholds.anemia.severe,
             hb_values < settings.thresholds.anemia.moderate,
             hb_values < settings.thresholds.anemia.mild
         ]
-        choices = ['Severe', 'Moderate', 'Mild']
-        df.loc[anemia_mask, 'anemia_severity'] = np.select(conditions, choices, default='Normal')
+        severity_choices = ['Severe', 'Moderate', 'Mild']
+        df.loc[anemia_mask, 'anemia_severity'] = np.select(severity_conditions, severity_choices, default='Normal')
 
+    # Generate Programmatic Flags
     if 'test_name' in df.columns and 'test_result' in df.columns and not df_program.empty:
         positive_hiv_mask = (df['test_name'].str.contains("HIV", na=False)) & (df['test_result'] == 'Positive')
         linked_patients_hiv = df_program[df_program['program_name'] == 'HIV Care']['patient_id'].unique()
         df['is_hiv_positive_unlinked'] = positive_hiv_mask & (~df['patient_id'].isin(linked_patients_hiv))
-
-        sputum_positive_mask = (df['test_name'].str.contains("Sputum|Smear", case=False, na=False)) & (df['test_result'] == 'Positive')
-        confirmed_patients_tb = df[df['test_name'].str.contains("GeneXpert", case=False, na=False)]['patient_id'].unique()
-        df['is_tb_positive_unconfirmed'] = sputum_positive_mask & (~df['patient_id'].isin(confirmed_patients_tb))
 
     return df
 
@@ -57,9 +67,7 @@ def enrich_health_records_with_features(df_health: pd.DataFrame) -> pd.DataFrame
     df = df_health.copy()
     num_records = len(df)
 
-    # --- THE FIX: This line now works because the attribute exists in settings. ---
     df['is_high_fever'] = df.get('body_temperature_celsius', 0) > settings.thresholds.body_temp_high_fever_c
-    
     df['is_spo2_critical'] = df.get('spo2_percentage', 100) < settings.thresholds.spo2_critical_low_pct
     df['abnormal_vital_count'] = df[['is_high_fever', 'is_spo2_critical']].sum(axis=1)
 
@@ -67,11 +75,11 @@ def enrich_health_records_with_features(df_health: pd.DataFrame) -> pd.DataFrame
         df = df.sort_values(by=['patient_id', 'encounter_date'])
         df['days_since_last_visit'] = df.groupby('patient_id')['encounter_date'].diff().dt.days.fillna(0).astype(int)
 
+    # (Other enrichment logic remains the same)
     if 'age' in df.columns:
         age_bins = [0, 5, 17, 45, 65, np.inf]
         age_labels = ['Infant/Toddler (0-5)', 'Child/Adolescent (6-17)', 'Adult (18-45)', 'Middle-Aged (46-65)', 'Senior (65+)']
         df['age_group'] = pd.cut(df['age'], bins=age_bins, labels=age_labels, right=False)
-
     if 'bmi' not in df.columns:
         df['bmi'] = np.random.normal(loc=22, scale=4, size=num_records).round(1).clip(15, 40)
     if 'is_smoker' not in df.columns:
