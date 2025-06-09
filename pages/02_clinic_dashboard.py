@@ -1,5 +1,5 @@
 # sentinel_project_root/pages/02_clinic_dashboard.py
-# Re-validated version.
+# Corrected version. Cache invalidated.
 
 import streamlit as st
 import pandas as pd
@@ -18,18 +18,18 @@ try:
         create_empty_figure
     )
 except ImportError as e:
-    st.error(f"A required application module could not be loaded. Error: {e}")
+    st.error(f"A required application module could not be loaded. Please check your project structure. Error: {e}")
     st.stop()
 
 logger = logging.getLogger(__name__)
 
+# --- THE FIX: Rename the function to invalidate Streamlit's cache ---
 @st.cache_data(ttl=settings.cache_ttl_seconds)
-def get_clinic_data() -> Dict[str, pd.DataFrame]:
+def get_clinic_data_v2() -> Dict[str, pd.DataFrame]:
     """Loads and caches all data sources, ensuring enrichment."""
     labs_raw = load_lab_results()
     program_outcomes = load_program_outcomes()
     
-    # Correctly call the enrichment function here.
     labs_enriched = enrich_lab_results_with_features(labs_raw, program_outcomes)
 
     return {
@@ -40,26 +40,41 @@ def get_clinic_data() -> Dict[str, pd.DataFrame]:
 class ClinicDashboard:
     """An encapsulated class to manage state and rendering for the clinic dashboard."""
     def __init__(self):
-        st.set_page_config(page_title="Clinic Dashboard", page_icon="🏥", layout="wide")
-        self.all_data = get_clinic_data()
+        st.set_page_config(
+            page_title="Clinic Dashboard",
+            page_icon="🏥",
+            layout="wide"
+        )
+        # --- THE FIX: Call the new, uncached function name ---
+        self.all_data = get_clinic_data_v2()
         self.state: Dict[str, Any] = self._initialize_state()
         self.filtered_data = self._get_filtered_data()
 
     def _initialize_state(self) -> Dict[str, Any]:
         """Sets up sidebar filters."""
         st.sidebar.header("🔬 Dashboard Filters")
+        
         df = self.all_data.get('labs')
         if df is None or df.empty:
             st.sidebar.warning("No lab data available.")
             return {}
 
-        min_date = df['sample_collection_date'].min().date()
-        max_date = df['sample_collection_date'].max().date()
+        # Handle potential NaT in date columns before finding min/max
+        date_series = pd.to_datetime(df['sample_collection_date'], errors='coerce').dropna()
+        if date_series.empty:
+            st.sidebar.warning("No valid dates in lab data.")
+            return {}
+
+        min_date = date_series.min().date()
+        max_date = date_series.max().date()
         default_start = max(min_date, max_date - pd.Timedelta(days=29))
 
         date_range = st.sidebar.date_input(
             "Select Date Range",
-            value=(default_start, max_date), min_value=min_date, max_value=max_date)
+            value=(default_start, max_date),
+            min_value=min_date,
+            max_value=max_date,
+        )
         return {'start_date': date_range[0], 'end_date': date_range[1]}
 
     def _get_filtered_data(self) -> Dict[str, pd.DataFrame]:
@@ -72,9 +87,11 @@ class ClinicDashboard:
             if df.empty:
                 filtered[name] = pd.DataFrame()
                 continue
+            
             date_col = next((c for c in df.columns if 'date' in c and 'result' not in c), None)
             if date_col:
-                filtered[name] = df[df[date_col].dt.date.between(self.state['start_date'], self.state['end_date'])].copy()
+                date_series = pd.to_datetime(df[date_col], errors='coerce')
+                filtered[name] = df[date_series.dt.date.between(self.state['start_date'], self.state['end_date'])].copy()
             else:
                 filtered[name] = df.copy()
         return filtered
@@ -86,7 +103,7 @@ class ClinicDashboard:
         period_duration = (self.state['end_date'] - self.state['start_date']).days
         prev_start_date = self.state['start_date'] - pd.Timedelta(days=period_duration + 1)
         prev_end_date = self.state['start_date'] - pd.Timedelta(days=1)
-        labs_previous = labs_all[labs_all['sample_collection_date'].dt.date.between(prev_start_date, prev_end_date)]
+        labs_previous = labs_all[pd.to_datetime(labs_all['sample_collection_date']).dt.date.between(prev_start_date, prev_end_date)]
 
         cols = st.columns(3)
         with cols[0]:
@@ -101,15 +118,12 @@ class ClinicDashboard:
             previous_rejection_rate = (labs_previous['is_rejected'].mean() or 0) * 100
             delta_val = current_rejection_rate - previous_rejection_rate
             render_metric_card("Sample Rejection Rate", 
-                {'current_mean': current_rejection_rate, 
-                'delta_pct': delta_val/previous_rejection_rate if previous_rejection_rate > 0 else None,
-                'is_significant': False},
-                unit_suffix="%")
-                
+                               {'current_mean': current_rejection_rate, 
+                                'delta_pct': delta_val/previous_rejection_rate if previous_rejection_rate > 0 else None,
+                                'is_significant': False},
+                               unit_suffix="%")
         with cols[2]:
-            critical_pending_df = labs_all[
-                (labs_all['test_status'] == 'Pending') & (labs_all['is_critical'])
-            ]
+            critical_pending_df = labs_all[(labs_all['test_status'] == 'Pending') & (labs_all['is_critical'])]
             render_metric_card("Pending Critical Tests",
                 {'current_mean': len(critical_pending_df)}, kpi_format="{:,.0f}")
         
