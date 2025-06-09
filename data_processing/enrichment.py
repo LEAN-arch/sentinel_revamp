@@ -22,9 +22,17 @@ def enrich_lab_results_with_features(df_labs: pd.DataFrame, df_program: pd.DataF
 
     df = df_labs.copy()
 
+    # --- THE FIX: Ensure 'is_rejected' is a clean boolean column ---
+    # Fill any NaNs with False and cast to a proper boolean type.
+    # This prevents the ValueError during boolean indexing.
+    if 'is_rejected' in df.columns:
+        df['is_rejected'] = df['is_rejected'].fillna(False).astype(bool)
+    else:
+        df['is_rejected'] = False
+
+
     # Calculate Turnaround Time
     if 'result_date' in df.columns and 'sample_collection_date' in df.columns:
-        # Ensure dates are datetime objects before subtraction
         df['result_date'] = pd.to_datetime(df['result_date'], errors='coerce')
         df['sample_collection_date'] = pd.to_datetime(df['sample_collection_date'], errors='coerce')
         df['turn_around_time_days'] = (df['result_date'] - df['sample_collection_date']).dt.total_seconds() / (24 * 3600)
@@ -37,11 +45,8 @@ def enrich_lab_results_with_features(df_labs: pd.DataFrame, df_program: pd.DataF
     choices_status = ['Rejected', 'Completed']
     df['test_status'] = np.select(conditions_status, choices_status, default='Pending')
     
-    # --- THE FIX: Correctly create the 'is_critical' column ---
-    # Create a mapping from the Pydantic model in settings
+    # Create the 'is_critical' column
     critical_test_map = {test_name: props.is_critical for test_name, props in settings.key_test_types.items()}
-    
-    # Map the test names to their critical status, defaulting to False if not found
     df['is_critical'] = df['test_name'].map(critical_test_map).fillna(False)
     
     # Classify Clinical Severity (e.g., Anemia)
