@@ -1,5 +1,5 @@
 # sentinel_project_root/pages/02_clinic_dashboard.py
-# Corrected version. Cache invalidated.
+# Final corrected version.
 
 import streamlit as st
 import pandas as pd
@@ -18,86 +18,63 @@ try:
         create_empty_figure
     )
 except ImportError as e:
-    st.error(f"A required application module could not be loaded. Please check your project structure. Error: {e}")
+    st.error(f"A required application module could not be loaded. Error: {e}")
     st.stop()
 
 logger = logging.getLogger(__name__)
 
-# --- THE FIX: Rename the function to invalidate Streamlit's cache ---
 @st.cache_data(ttl=settings.cache_ttl_seconds)
-def get_clinic_data_v2() -> Dict[str, pd.DataFrame]:
+def get_clinic_data_v3() -> Dict[str, pd.DataFrame]:
     """Loads and caches all data sources, ensuring enrichment."""
     labs_raw = load_lab_results()
     program_outcomes = load_program_outcomes()
-    
     labs_enriched = enrich_lab_results_with_features(labs_raw, program_outcomes)
-
     return {
         'labs': labs_enriched,
         'supply': load_supply_utilization()
     }
 
 class ClinicDashboard:
-    """An encapsulated class to manage state and rendering for the clinic dashboard."""
     def __init__(self):
-        st.set_page_config(
-            page_title="Clinic Dashboard",
-            page_icon="🏥",
-            layout="wide"
-        )
-        # --- THE FIX: Call the new, uncached function name ---
-        self.all_data = get_clinic_data_v2()
+        st.set_page_config(page_title="Clinic Dashboard", page_icon="🏥", layout="wide")
+        self.all_data = get_clinic_data_v3()
         self.state: Dict[str, Any] = self._initialize_state()
         self.filtered_data = self._get_filtered_data()
 
     def _initialize_state(self) -> Dict[str, Any]:
-        """Sets up sidebar filters."""
         st.sidebar.header("🔬 Dashboard Filters")
-        
         df = self.all_data.get('labs')
         if df is None or df.empty:
             st.sidebar.warning("No lab data available.")
             return {}
-
-        # Handle potential NaT in date columns before finding min/max
         date_series = pd.to_datetime(df['sample_collection_date'], errors='coerce').dropna()
         if date_series.empty:
             st.sidebar.warning("No valid dates in lab data.")
             return {}
-
-        min_date = date_series.min().date()
-        max_date = date_series.max().date()
+        min_date, max_date = date_series.min().date(), date_series.max().date()
         default_start = max(min_date, max_date - pd.Timedelta(days=29))
-
         date_range = st.sidebar.date_input(
-            "Select Date Range",
-            value=(default_start, max_date),
-            min_value=min_date,
-            max_value=max_date,
-        )
+            "Select Date Range", value=(default_start, max_date),
+            min_value=min_date, max_value=max_date)
         return {'start_date': date_range[0], 'end_date': date_range[1]}
 
     def _get_filtered_data(self) -> Dict[str, pd.DataFrame]:
-        """Filters datasets based on the date range."""
         filtered = {}
         if not self.state:
             return {'labs': pd.DataFrame(), 'supply': pd.DataFrame()}
-
         for name, df in self.all_data.items():
             if df.empty:
-                filtered[name] = pd.DataFrame()
-                continue
-            
+                filtered[name] = pd.DataFrame(); continue
             date_col = next((c for c in df.columns if 'date' in c and 'result' not in c), None)
             if date_col:
                 date_series = pd.to_datetime(df[date_col], errors='coerce')
-                filtered[name] = df[date_series.dt.date.between(self.state['start_date'], self.state['end_date'])].copy()
+                mask = date_series.dt.date.between(self.state['start_date'], self.state['end_date'])
+                filtered[name] = df[mask].copy()
             else:
                 filtered[name] = df.copy()
         return filtered
 
     def _render_lab_kpis(self, labs_current: pd.DataFrame, labs_all: pd.DataFrame):
-        """Renders KPIs for the Laboratory Performance tab."""
         st.subheader("Laboratory Key Performance Indicators")
         
         period_duration = (self.state['end_date'] - self.state['start_date']).days
@@ -108,22 +85,26 @@ class ClinicDashboard:
         cols = st.columns(3)
         with cols[0]:
             stats = calculate_kpi_statistics(
-                current_period_series=labs_current['turn_around_time_days'],
-                previous_period_series=labs_previous['turn_around_time_days'],
-                higher_is_better=False)
+                labs_current['turn_around_time_days'],
+                labs_previous['turn_around_time_days'], False)
             render_metric_card("Avg. Test Turnaround", stats, unit_suffix=" days")
 
         with cols[1]:
-            current_rejection_rate = (labs_current['is_rejected'].mean() or 0) * 100
-            previous_rejection_rate = (labs_previous['is_rejected'].mean() or 0) * 100
+            current_rejected = labs_current['is_rejected'].fillna(False).astype(bool)
+            previous_rejected = labs_previous['is_rejected'].fillna(False).astype(bool)
+            current_rejection_rate = (current_rejected.mean() or 0) * 100
+            previous_rejection_rate = (previous_rejected.mean() or 0) * 100
             delta_val = current_rejection_rate - previous_rejection_rate
             render_metric_card("Sample Rejection Rate", 
-                               {'current_mean': current_rejection_rate, 
-                                'delta_pct': delta_val/previous_rejection_rate if previous_rejection_rate > 0 else None,
-                                'is_significant': False},
-                               unit_suffix="%")
+                {'current_mean': current_rejection_rate, 
+                'delta_pct': delta_val / previous_rejection_rate if previous_rejection_rate > 0 else None,
+                'is_significant': False},
+                unit_suffix="%")
+                
         with cols[2]:
-            critical_pending_df = labs_all[(labs_all['test_status'] == 'Pending') & (labs_all['is_critical'])]
+            critical_pending_df = labs_all[
+                (labs_all['test_status'] == 'Pending') & (labs_all['is_critical'])
+            ]
             render_metric_card("Pending Critical Tests",
                 {'current_mean': len(critical_pending_df)}, kpi_format="{:,.0f}")
         
@@ -134,17 +115,25 @@ class ClinicDashboard:
             tat_trend = labs_all.set_index('result_date')['turn_around_time_days'].resample('W').mean()
             st.plotly_chart(plot_kpi_trend(tat_trend, "Weekly Avg. Test Turnaround Time", "Avg. TAT (Days)"), use_container_width=True)
         with col2:
-            reasons_df = labs_current[labs_current['is_rejected']]['rejection_reason'].value_counts().reset_index()
-            reasons_df.columns = ['reason', 'count']
-            st.plotly_chart(plot_categorical_distribution(reasons_df.head(5), y_col='reason', x_col='count', title="Top 5 Rejection Reasons", orientation='h'), use_container_width=True)
+            # --- THE FIX: Aggressively clean the column immediately before use ---
+            labs_current['is_rejected'] = labs_current['is_rejected'].fillna(False).astype(bool)
+            rejected_df = labs_current[labs_current['is_rejected']]
+            
+            if not rejected_df.empty:
+                reasons_df = rejected_df['rejection_reason'].value_counts().reset_index()
+                reasons_df.columns = ['reason', 'count']
+                st.plotly_chart(
+                    plot_categorical_distribution(reasons_df.head(5), y_col='reason', x_col='count', title="Top 5 Rejection Reasons", orientation='h'), 
+                    use_container_width=True)
+            else:
+                st.plotly_chart(create_empty_figure("Top 5 Rejection Reasons"), use_container_width=True)
 
     def _render_supply_forecast(self):
-        """Renders the Supply Chain tab."""
+        st.subheader("Key Item Consumption Forecast")
         df_supply = self.all_data.get('supply')
         if df_supply is None or df_supply.empty:
             st.info("Supply utilization data not available."); return
             
-        st.subheader("Key Item Consumption Forecast")
         all_items = sorted(df_supply['item_name'].unique())
         selected_item = st.selectbox("Select Supply Item to Forecast", all_items)
         
@@ -157,8 +146,7 @@ class ClinicDashboard:
             
             if forecast_df is None:
                 st.warning(f"Could not generate forecast for {selected_item}. Insufficient data.")
-                st.plotly_chart(create_empty_figure("Consumption Forecast"), use_container_width=True)
-                return
+                st.plotly_chart(create_empty_figure("Consumption Forecast"), use_container_width=True); return
 
             st.plotly_chart(plot_supply_forecast(forecast_df, f"60-Day Consumption Forecast: {selected_item}", "Predicted Consumption"), use_container_width=True)
             
@@ -177,7 +165,6 @@ class ClinicDashboard:
                 sc_col2.metric("Predicted Stockout Date", "Beyond 60 Days", delta_color="off")
     
     def run(self):
-        """Main method to render the dashboard."""
         render_main_header("Clinic Operations Console", "Real-time laboratory, supply chain, and patient flow monitoring")
         labs_df = self.filtered_data.get('labs', pd.DataFrame())
 
