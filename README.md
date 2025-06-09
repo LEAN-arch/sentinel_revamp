@@ -1,6 +1,3 @@
-# sentinel_revamp
-#  sentinel_project_root/README.md
-
 # Sentinel Public Health Co-Pilot
 
 **Version:** 6.0.0 (Platinum Standard - Public Health Mission)  
