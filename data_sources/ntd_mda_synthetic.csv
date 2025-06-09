@@ -1,0 +1,4 @@
+campaign_id,campaign_date,zone_id,target_disease,drug_administered,target_population,individuals_treated
+MDA-01,2023-11-10,ZN-01,Schistosomiasis,Praziquantel,35000,31500
+MDA-02,2023-11-12,ZN-02,Schistosomiasis,Praziquantel,72000,68100
+MDA-03,2024-02-15,ZN-05,Lymphatic Filariasis,"Albendazole, Ivermectin",28000,21000
