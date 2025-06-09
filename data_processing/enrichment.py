@@ -29,14 +29,16 @@ def enrich_lab_results_with_features(df_labs: pd.DataFrame, df_program: pd.DataF
     else:
         df['turn_around_time_days'] = np.nan
 
-    # --- THE FIX: Programmatically create the 'test_status' column ---
-    conditions = [
-        df['is_rejected'] == True,
-        df['result_date'].notna()
-    ]
+    # Create 'test_status' column
+    conditions = [df['is_rejected'] == True, df['result_date'].notna()]
     choices = ['Rejected', 'Completed']
     df['test_status'] = np.select(conditions, choices, default='Pending')
-
+    
+    # --- THE FIX: Programmatically create the 'is_critical' column ---
+    # Create a mapping from the settings dictionary
+    critical_test_map = {test_name: props.get('is_critical', False) for test_name, props in settings.key_test_types.items()}
+    # Map the test names to their critical status, defaulting to False if not found
+    df['is_critical'] = df['test_name'].map(critical_test_map).fillna(False)
 
     # Classify Clinical Severity (e.g., Anemia)
     if 'test_name' in df.columns and 'result_value' in df.columns:
@@ -75,7 +77,6 @@ def enrich_health_records_with_features(df_health: pd.DataFrame) -> pd.DataFrame
         df = df.sort_values(by=['patient_id', 'encounter_date'])
         df['days_since_last_visit'] = df.groupby('patient_id')['encounter_date'].diff().dt.days.fillna(0).astype(int)
 
-    # (Other enrichment logic remains the same)
     if 'age' in df.columns:
         age_bins = [0, 5, 17, 45, 65, np.inf]
         age_labels = ['Infant/Toddler (0-5)', 'Child/Adolescent (6-17)', 'Adult (18-45)', 'Middle-Aged (46-65)', 'Senior (65+)']
