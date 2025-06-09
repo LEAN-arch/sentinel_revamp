@@ -1,13 +1,13 @@
 # sentinel_project_root/data_processing/helpers.py
 #
-# PLATINUM STANDARD - Core Data Utilities
-# This module provides a set of high-performance, standalone utility functions
-# for common, low-level data manipulation tasks used across the application.
+# PLATINUM STANDARD - Core Data Utilities (V2.1 - Corrected)
+# This version corrects the missing 're' module import.
 
 import pandas as pd
 import numpy as np
 import logging
 import json
+import re  # <<< THE FIX: Import the 're' module for regular expressions.
 from pathlib import Path
 from typing import Any, Optional, Union, Dict, List, Type
 
@@ -52,7 +52,6 @@ def convert_to_numeric(
     # Apply specific integer or float typing if requested.
     if target_type is int and pd.api.types.is_numeric_dtype(numeric_series.dtype):
         # Use pandas' nullable integer type to safely handle potential NaNs.
-        # This prevents accidental conversion of NaN to 0, which can skew analytics.
         if numeric_series.isnull().any():
             numeric_series = numeric_series.astype(pd.Int64Dtype())
         else:
@@ -60,7 +59,6 @@ def convert_to_numeric(
     elif target_type is float:
         numeric_series = numeric_series.astype(float)
 
-    # Return the data in its original format (scalar or Series).
     if is_series:
         return numeric_series
     else:
@@ -72,7 +70,6 @@ def robust_json_load(
     context: str = "JSON"
 ) -> Optional[Union[Dict, List]]:
     """
-
     Loads JSON data from a file with standardized error handling.
 
     Args:
