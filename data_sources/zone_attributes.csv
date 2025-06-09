@@ -1,0 +1,7 @@
+zone_id,name,population,area_sqkm,socioeconomic_status
+ZN-01,Kwale Coastal,45200,150.5,Low
+ZN-02,Vihiga Highlands,88100,88.2,Low-Middle
+ZN-03,Turkana North,21500,1250.7,Very Low
+ZN-04,Nairobi Urban Core,152300,45.1,Middle
+ZN-05,Garissa Aridlands,33400,2100.3,Very Low
+ZN-06,Kisii Central,112500,110.0,Middle
