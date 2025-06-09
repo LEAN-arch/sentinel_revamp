@@ -1,5 +1,5 @@
 # sentinel_project_root/data_processing/enrichment.py
-# Corrected and final version.
+# Final corrected version.
 
 import logging
 import pandas as pd
@@ -15,58 +15,54 @@ except ImportError as e:
 logger = logging.getLogger(__name__)
 
 
-def enrich_lab_results_with_features(df_labs: pd.DataFrame, df_program: pd.DataFrame) -> pd.DataFrame:
+def enrich_lab_results_with_features(df_labs: pd.DataFrame) -> pd.DataFrame:
     """Enriches lab results with TAT, clinical severity, and programmatic flags."""
     if not isinstance(df_labs, pd.DataFrame) or df_labs.empty:
         return pd.DataFrame()
 
     df = df_labs.copy()
 
-    # --- THE FIX: Ensure 'is_rejected' is a clean boolean column ---
-    # Fill any NaNs with False and cast to a proper boolean type.
-    # This prevents the ValueError during boolean indexing.
-    if 'is_rejected' in df.columns:
-        df['is_rejected'] = df['is_rejected'].fillna(False).astype(bool)
-    else:
-        df['is_rejected'] = False
+    df['result_date'] = pd.to_datetime(df['result_date'], errors='coerce')
+    df['sample_collection_date'] = pd.to_datetime(df['sample_collection_date'], errors='coerce')
 
+    df['turn_around_time_days'] = (df['result_date'] - df['sample_collection_date']).dt.total_seconds() / (24 * 3600)
+    df['turn_around_time_days'] = df['turn_around_time_days'].clip(lower=0)
 
-    # Calculate Turnaround Time
-    if 'result_date' in df.columns and 'sample_collection_date' in df.columns:
-        df['result_date'] = pd.to_datetime(df['result_date'], errors='coerce')
-        df['sample_collection_date'] = pd.to_datetime(df['sample_collection_date'], errors='coerce')
-        df['turn_around_time_days'] = (df['result_date'] - df['sample_collection_date']).dt.total_seconds() / (24 * 3600)
-        df['turn_around_time_days'] = df['turn_around_time_days'].clip(lower=0)
-    else:
-        df['turn_around_time_days'] = np.nan
-
-    # Create 'test_status' column
+    df['is_rejected'] = df['is_rejected'].fillna(False).astype(bool)
+    
     conditions_status = [df['is_rejected'] == True, df['result_date'].notna()]
     choices_status = ['Rejected', 'Completed']
     df['test_status'] = np.select(conditions_status, choices_status, default='Pending')
     
-    # Create the 'is_critical' column
     critical_test_map = {test_name: props.is_critical for test_name, props in settings.key_test_types.items()}
     df['is_critical'] = df['test_name'].map(critical_test_map).fillna(False)
     
-    # Classify Clinical Severity (e.g., Anemia)
     if 'test_name' in df.columns and 'result_value' in df.columns:
         anemia_mask = df['test_name'].str.contains("Hemoglobin", case=False, na=False)
-        hb_values = pd.to_numeric(df.loc[anemia_mask, 'result_value'], errors='coerce')
-        severity_conditions = [
-            hb_values < settings.thresholds.anemia.severe,
-            hb_values < settings.thresholds.anemia.moderate,
-            hb_values < settings.thresholds.anemia.mild
-        ]
-        severity_choices = ['Severe', 'Moderate', 'Mild']
-        df.loc[anemia_mask, 'anemia_severity'] = np.select(severity_conditions, severity_choices, default='Normal')
+        if anemia_mask.any():
+            hb_values = pd.to_numeric(df.loc[anemia_mask, 'result_value'], errors='coerce')
+            severity_conditions = [
+                hb_values < settings.thresholds.anemia.severe,
+                hb_values < settings.thresholds.anemia.moderate,
+                hb_values < settings.thresholds.anemia.mild
+            ]
+            severity_choices = ['Severe', 'Moderate', 'Mild']
+            df.loc[anemia_mask, 'anemia_severity'] = np.select(severity_conditions, severity_choices, default='Normal')
 
-    # Generate Programmatic Flags
-    if 'test_name' in df.columns and 'test_result' in df.columns and not df_program.empty:
-        positive_hiv_mask = (df['test_name'].str.contains("HIV", na=False)) & (df['test_result'] == 'Positive')
-        linked_patients_hiv = df_program[df_program['program_name'] == 'HIV Care']['patient_id'].unique()
-        df['is_hiv_positive_unlinked'] = positive_hiv_mask & (~df['patient_id'].isin(linked_patients_hiv))
+    return df
 
+
+def enrich_program_outcomes_with_features(df_program: pd.DataFrame) -> pd.DataFrame:
+    """Enriches program outcomes data with boolean flags for aggregation."""
+    if not isinstance(df_program, pd.DataFrame) or df_program.empty:
+        return pd.DataFrame()
+    
+    df = df_program.copy()
+
+    # --- THE FIX: Create the boolean flags here ---
+    df['is_linked_to_care_hiv'] = (df['program_name'] == 'HIV Care') & (pd.to_datetime(df['treatment_start_date'], errors='coerce').notna())
+    df['is_treatment_success_tb'] = (df['program_name'] == 'Tuberculosis Care') & (df['outcome'] == 'Treatment Completed')
+    
     return df
 
 
