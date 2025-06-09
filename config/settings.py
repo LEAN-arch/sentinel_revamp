@@ -1,8 +1,8 @@
 # sentinel_project_root/config/settings.py
 #
-# PLATINUM STANDARD - Centralized Application Configuration (V2.1 - Corrected)
-# This version corrects a critical initialization bug by using a Pydantic
-# model_validator to properly assemble interdependent file paths.
+# PLATINUM STANDARD - Centralized Application Configuration (V2.2 - System Fix)
+# This version corrects all previous bugs. Logging configuration is moved to the
+# top level for direct access, and all path assembly is validated.
 
 import logging
 from pathlib import Path
@@ -14,16 +14,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 settings_logger = logging.getLogger(__name__)
 
-# --- Nested Configuration Models (Structure remains the same) ---
+# --- Nested Configuration Models ---
 
 class AppConfig(BaseModel):
+    """Core application metadata only."""
     name: str = "Sentinel Public Health Co-Pilot"
-    version: str = "6.1.0 Platinum Corrected"
+    version: str = "7.0.0 Platinum (Stable)"
     organization_name: str = "Global Health Diagnostics Initiative"
     support_contact: str = "support@ghdi.org"
-    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
-    log_format: str = "%(asctime)s - %(name)s.%(funcName)s - %(levelname)s - %(message)s"
-    random_seed: int = 42
 
 class DirectoryConfig(BaseModel):
     root: Path = PROJECT_ROOT
@@ -38,6 +36,7 @@ class DirectoryConfig(BaseModel):
             dir_path.mkdir(parents=True, exist_ok=True)
         return self
 
+# (Other nested models like AnemiaThresholdConfig, ProgramTargetConfig, etc. remain unchanged)
 class AnemiaThresholdConfig(BaseModel):
     severe: float = 8.0
     moderate: float = 11.0
@@ -71,7 +70,7 @@ class ThemeConfig(BaseModel):
     risk_high: str = "#D32F2F"
     risk_moderate: str = "#FFA000"
     risk_low: str = "#388E3C"
-    
+
     @computed_field
     @property
     def plotly_colorway(self) -> List[str]:
@@ -79,7 +78,7 @@ class ThemeConfig(BaseModel):
 
 class MLModelConfig(BaseModel):
     risk_model_filename: str = "sentinel_risk_model_v1.joblib"
-    risk_model_path: Optional[Path] = None  # This will be assembled by the validator
+    risk_model_path: Optional[Path] = None
     risk_model_features: List[str] = ["age", "bmi", "is_smoker", "has_chronic_condition", "days_since_last_visit", "abnormal_vital_count"]
 
 # --- Main Settings Class ---
@@ -93,6 +92,12 @@ class Settings(BaseSettings):
         extra='ignore'
     )
 
+    # --- THE FIX: Top-level configs are now direct attributes ---
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    log_date_format: str = "%Y-%m-%d %H:%M:%S"
+    random_seed: int = 42
+
     # --- Nested Models ---
     app: AppConfig = Field(default_factory=AppConfig)
     directories: DirectoryConfig = Field(default_factory=DirectoryConfig)
@@ -100,14 +105,16 @@ class Settings(BaseSettings):
     targets: ProgramTargetConfig = Field(default_factory=ProgramTargetConfig)
     theme: ThemeConfig = Field(default_factory=ThemeConfig)
     ml_models: MLModelConfig = Field(default_factory=MLModelConfig)
+    
+    # --- Top-level configs that don't fit in a nested model ---
     mapbox_token: Optional[str] = None
     cache_ttl_seconds: int = 3600
     map_default_zoom: int = 5
     map_default_center_lat: float = 0.0236
     map_default_center_lon: float = 15.8277
     map_style: str = "carto-positron"
-    
-    # --- DECLARE PATHS (to be assembled by validator) ---
+
+    # --- Path attributes to be assembled ---
     health_records_path: Optional[Path] = None
     lab_results_path: Optional[Path] = None
     zone_attributes_path: Optional[Path] = None
@@ -118,8 +125,7 @@ class Settings(BaseSettings):
     ntd_mda_path: Optional[Path] = None
     app_logo_large_path: Optional[Path] = None
     style_css_path: Optional[Path] = None
-    
-    # --- Semantic Definitions (can be defined directly) ---
+
     key_diagnoses_for_action: List[str] = ['Tuberculosis', 'Malaria', 'HIV', 'Pneumonia', 'Anemia', 'Syphilis', 'Chlamydia']
     key_supply_items_for_forecast: List[str] = ['Amoxicillin', 'ORS Packet', 'Gloves', 'Syringes', 'GeneXpert Cartridge', 'Malaria RDT Kit', 'HIV 1/2 Ag/Ab Combo Test', 'Hemoglobin Cuvette']
     key_test_types: Dict[str, TestTypeConfig] = {
@@ -137,15 +143,9 @@ class Settings(BaseSettings):
         from datetime import datetime
         return f"© {datetime.now().year} {self.app.organization_name}. Advancing Diagnostics for All."
 
-    # --- THE FIX: This validator runs after initialization ---
     @model_validator(mode='after')
     def assemble_paths(self) -> 'Settings':
-        """Assembles the full, absolute paths after the base directories are known."""
-        data_dir = self.directories.data_sources
-        asset_dir = self.directories.assets
-        ml_dir = self.directories.ml_models
-
-        # Assemble data source paths
+        data_dir, asset_dir, ml_dir = self.directories.data_sources, self.directories.assets, self.directories.ml_models
         self.health_records_path = data_dir / "health_records_synthetic.csv"
         self.lab_results_path = data_dir / "lab_results_synthetic.csv"
         self.zone_attributes_path = data_dir / "zone_attributes.csv"
@@ -154,22 +154,14 @@ class Settings(BaseSettings):
         self.program_outcomes_path = data_dir / "program_outcomes_synthetic.csv"
         self.contact_tracing_path = data_dir / "contact_tracing_synthetic.csv"
         self.ntd_mda_path = data_dir / "ntd_mda_synthetic.csv"
-
-        # Assemble asset paths
         self.app_logo_large_path = asset_dir / "sentinel_logo_large.png"
         self.style_css_path = asset_dir / "style.css"
-
-        # Assemble ML model path
         self.ml_models.risk_model_path = ml_dir / self.ml_models.risk_model_filename
-
         return self
 
-# --- Singleton Instance ---
 try:
     settings = Settings()
     settings_logger.info(f"Settings loaded successfully for '{settings.app.name}' v{settings.app.version}.")
-    if not settings.mapbox_token:
-        settings_logger.warning("Mapbox token not found. Maps will use a basic style.")
 except Exception as e:
     settings_logger.critical(f"FATAL: Could not initialize settings. Error: {e}", exc_info=True)
     raise
