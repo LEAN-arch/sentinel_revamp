@@ -1,0 +1,48 @@
+# sentinel_project_root/requirements.txt
+#
+# PLATINUM STANDARD - Sentinel Health Co-Pilot Dependencies
+# This file specifies the exact Python packages required for the system.
+# It ensures a reproducible, stable, and high-performance environment.
+# All versions are pinned for production-grade reliability.
+
+# --- Core Web Application Framework ---
+# Powers the interactive dashboards.
+streamlit==1.35.0
+
+# --- Data Processing, Numerics, and Performance ---
+# Foundational libraries for data manipulation and computation.
+pandas==2.2.2
+numpy==1.26.4
+scipy==1.13.1          # Required by scikit-learn for advanced scientific computing.
+
+# --- Configuration & Data Validation ---
+# Pydantic is used for robust, self-validating configuration management.
+pydantic==2.7.4
+pydantic-settings==2.3.4
+
+# --- Machine Learning & Statistical Forecasting (NEW) ---
+# Core libraries for predictive analytics, newly integrated into the ecosystem.
+# Used for patient risk stratification and other predictive tasks.
+scikit-learn==1.5.0
+
+# Used for robust time-series forecasting of supply levels and epidemiological trends.
+# NOTE: 'prophet' may require manual installation of the 'cmdstanpy' backend.
+prophet==1.1.5
+
+# --- Visualization & Plotting ---
+# Plotly is the primary engine for creating interactive, publication-quality charts.
+plotly==5.22.0
+
+# Used for exporting Plotly charts as static images (e.g., for reports or sparklines).
+kaleido==0.2.1
+
+# --- Utility Libraries ---
+# Used for serialization and deserialization of scikit-learn models.
+joblib==1.4.2
+
+# Parses Python version strings to enable conditional feature usage.
+packaging==24.0
+
+# Recommended for local development to manage environment variables from a .env file.
+# The application will use it if it's available.
+# python-dotenv==1.0.1
