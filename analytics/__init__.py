@@ -1,9 +1,8 @@
 # sentinel_project_root/analytics/__init__.py
 #
-# PLATINUM STANDARD - Analytics Package API
-# This file initializes the analytics package and defines its public API.
-# It provides a clean, high-level interface to all predictive models,
-# forecasting engines, and statistical aggregation functions.
+# PLATINUM STANDARD - Analytics Package API (V2.1 - Re-validated)
+# This file initializes the analytics package and defines its public API,
+# confirming full compatibility with the corrected system architecture.
 
 """
 Initializes the analytics package, making key functions and classes
@@ -27,14 +26,15 @@ from .forecasting import (
 # decision-grade Key Performance Indicators (KPIs).
 from .aggregation import (
     calculate_kpi_statistics,
-    aggregate_population_health_stats,
-    aggregate_zonal_stats
+    aggregate_zonal_stats,
+    aggregate_district_stats,
+    aggregate_program_kpis
 )
 
 
-# --- Define the public API for the analytics package ---
-# This list controls what is imported when a user does `from analytics import *`
-# and is considered the canonical list of public-facing components.
+# --- Define the Public API for the analytics package ---
+# This list controls 'from analytics import *' behavior and is the
+# canonical list of public-facing components.
 __all__ = [
     # Prediction
     "predict_patient_risk",
@@ -45,6 +45,7 @@ __all__ = [
 
     # Aggregation & KPIs
     "calculate_kpi_statistics",
-    "aggregate_population_health_stats",
     "aggregate_zonal_stats",
+    "aggregate_district_stats",
+    "aggregate_program_kpis",
 ]
