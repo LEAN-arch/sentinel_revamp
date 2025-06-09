@@ -1,5 +1,5 @@
-outcome_id,patient_id,program_name,diagnosis_date,treatment_start_date,outcome_date,outcome,is_linked_to_care_hiv,is_treatment_success_tb
-OUT-01,PAT-0455,Tuberculosis Care,2023-01-16,2023-01-25,2023-09-25,Treatment Completed,FALSE,TRUE
-OUT-02,PAT-0734,HIV Care,2023-01-18,2023-02-05,,In Treatment,TRUE,FALSE
-OUT-03,PAT-0501,STI Treatment,2024-04-04,2024-04-06,2024-04-20,Treatment Completed,FALSE,FALSE
-OUT-04,PAT-1321,Nutrition Support,2023-01-17,2023-01-17,2023-04-17,Resolved,FALSE,FALSE
+outcome_id,patient_id,program_name,diagnosis_date,treatment_start_date,outcome_date,outcome
+OUT-01,PAT-0455,Tuberculosis Care,2023-01-16,2023-01-25,2023-09-25,Treatment Completed
+OUT-02,PAT-0734,HIV Care,2023-01-18,2023-02-05,,In Treatment
+OUT-03,PAT-0501,STI Treatment,2024-04-04,2024-04-06,2024-04-20,Treatment Completed
+OUT-04,PAT-1321,Nutrition Support,2023-01-17,2023-01-17,2023-04-17,Resolved
