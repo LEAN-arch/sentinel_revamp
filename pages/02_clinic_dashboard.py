@@ -1,20 +1,15 @@
 # sentinel_project_root/pages/02_clinic_dashboard.py
-#
-# PLATINUM STANDARD - Clinic Operations & Management Dashboard
-# This dashboard provides clinic managers with a comprehensive view of operational
-# efficiency, laboratory performance, and supply chain logistics.
+# Corrected version.
 
 import streamlit as st
 import pandas as pd
 import logging
 from typing import Dict, Any
 
-# --- Core Application Imports ---
 try:
     from config.settings import settings
-    from data_processing.loaders import (
-        load_health_records, load_lab_results, load_supply_utilization
-    )
+    from data_processing.loaders import load_lab_results, load_supply_utilization, load_program_outcomes
+    from data_processing.enrichment import enrich_lab_results_with_features # <<< FIX: Import enrichment function
     from analytics.aggregation import calculate_kpi_statistics
     from analytics.forecasting import forecast_supply_demand
     from visualization.ui_elements import render_main_header, render_metric_card
@@ -32,9 +27,15 @@ logger = logging.getLogger(__name__)
 @st.cache_data(ttl=settings.cache_ttl_seconds)
 def get_clinic_data() -> Dict[str, pd.DataFrame]:
     """Loads and caches all data sources required for the clinic dashboard."""
+    labs_raw = load_lab_results()
+    program_outcomes = load_program_outcomes()
+    
+    # --- THE FIX: The enrichment function must be called here ---
+    # This ensures the 'turn_around_time_days' column is created before use.
+    labs_enriched = enrich_lab_results_with_features(labs_raw, program_outcomes)
+
     return {
-        'health': load_health_records(),
-        'labs': load_lab_results(),
+        'labs': labs_enriched, # Return the enriched dataframe
         'supply': load_supply_utilization()
     }
 
@@ -56,7 +57,6 @@ class ClinicDashboard:
         """Sets up the sidebar filters and returns their current state."""
         st.sidebar.header("🔬 Dashboard Filters")
         
-        # Use lab results date as the primary filter for this dashboard
         df = self.all_data.get('labs')
         if df is None or df.empty:
             st.sidebar.warning("No lab data available.")
@@ -89,13 +89,13 @@ class ClinicDashboard:
                 filtered[name] = pd.DataFrame()
                 continue
                 
-            date_col = next((col for col in df.columns if 'date' in col), None)
+            date_col = next((col for col in df.columns if 'date' in col and 'result' not in col), None)
             if date_col:
                 filtered[name] = df[
                     df[date_col].dt.date.between(self.state['start_date'], self.state['end_date'])
                 ].copy()
             else:
-                filtered[name] = df.copy() # No date filter if no date column
+                filtered[name] = df.copy()
         
         return filtered
 
@@ -103,7 +103,6 @@ class ClinicDashboard:
         """Renders KPIs for the Laboratory Performance tab."""
         st.subheader("Laboratory Key Performance Indicators")
         
-        # --- Define periods for statistical comparison ---
         period_duration = (self.state['end_date'] - self.state['start_date']).days
         prev_start_date = self.state['start_date'] - pd.Timedelta(days=period_duration + 1)
         prev_end_date = self.state['start_date'] - pd.Timedelta(days=1)
@@ -113,6 +112,7 @@ class ClinicDashboard:
 
         cols = st.columns(3)
         with cols[0]:
+            # This line will now work correctly.
             stats = calculate_kpi_statistics(
                 current_period_series=labs_current['turn_around_time_days'],
                 previous_period_series=labs_previous['turn_around_time_days'],
@@ -123,12 +123,11 @@ class ClinicDashboard:
         with cols[1]:
             current_rejection_rate = (labs_current['is_rejected'].mean() or 0) * 100
             previous_rejection_rate = (labs_previous['is_rejected'].mean() or 0) * 100
-            # Simple stats for rates
             delta_val = current_rejection_rate - previous_rejection_rate
             render_metric_card("Sample Rejection Rate", 
                                {'current_mean': current_rejection_rate, 
-                                'delta_pct': delta_val/previous_rejection_rate if previous_rejection_rate else None,
-                                'is_significant': False}, # Note: Significance test for rates is more complex
+                                'delta_pct': delta_val/previous_rejection_rate if previous_rejection_rate > 0 else None,
+                                'is_significant': False},
                                unit_suffix="%")
                                
         with cols[2]:
@@ -171,8 +170,6 @@ class ClinicDashboard:
         
         if selected_item:
             item_series = df_supply[df_supply['item_name'] == selected_item].set_index('report_date')['consumption_count']
-            
-            # Aggregate to daily
             daily_series = item_series.resample('D').sum().fillna(0)
             
             with st.spinner(f"Generating 60-day forecast for {selected_item}..."):
@@ -188,8 +185,8 @@ class ClinicDashboard:
                 use_container_width=True
             )
             
-            # --- Provide actionable stockout analysis ---
-            latest_stock = df_supply.sort_values('report_date').iloc[-1]['stock_on_hand']
+            latest_stock_row = df_supply[df_supply['item_name'] == selected_item].sort_values('report_date').iloc[-1]
+            latest_stock = latest_stock_row['stock_on_hand']
             
             forecast_df['cumulative_consumption'] = forecast_df['yhat'].clip(lower=0).cumsum()
             stockout_df = forecast_df[forecast_df['cumulative_consumption'] >= latest_stock]
@@ -206,7 +203,7 @@ class ClinicDashboard:
                 sc_col2.metric("Predicted Stockout Date", "Beyond 60 Days", delta_color="off")
     
     def run(self):
-        """Main method to render the entire dashboard."""
+        """Main method to render the entire dashboard page."""
         render_main_header("Clinic Operations Console", "Real-time laboratory, supply chain, and patient flow monitoring")
         
         labs_df = self.filtered_data.get('labs', pd.DataFrame())
