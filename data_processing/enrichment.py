@@ -24,22 +24,26 @@ def enrich_lab_results_with_features(df_labs: pd.DataFrame, df_program: pd.DataF
 
     # Calculate Turnaround Time
     if 'result_date' in df.columns and 'sample_collection_date' in df.columns:
+        # Ensure dates are datetime objects before subtraction
+        df['result_date'] = pd.to_datetime(df['result_date'], errors='coerce')
+        df['sample_collection_date'] = pd.to_datetime(df['sample_collection_date'], errors='coerce')
         df['turn_around_time_days'] = (df['result_date'] - df['sample_collection_date']).dt.total_seconds() / (24 * 3600)
         df['turn_around_time_days'] = df['turn_around_time_days'].clip(lower=0)
     else:
         df['turn_around_time_days'] = np.nan
 
     # Create 'test_status' column
-    conditions = [df['is_rejected'] == True, df['result_date'].notna()]
-    choices = ['Rejected', 'Completed']
-    df['test_status'] = np.select(conditions, choices, default='Pending')
+    conditions_status = [df['is_rejected'] == True, df['result_date'].notna()]
+    choices_status = ['Rejected', 'Completed']
+    df['test_status'] = np.select(conditions_status, choices_status, default='Pending')
     
-    # --- THE FIX: Programmatically create the 'is_critical' column ---
-    # Create a mapping from the settings dictionary
-    critical_test_map = {test_name: props.get('is_critical', False) for test_name, props in settings.key_test_types.items()}
+    # --- THE FIX: Correctly create the 'is_critical' column ---
+    # Create a mapping from the Pydantic model in settings
+    critical_test_map = {test_name: props.is_critical for test_name, props in settings.key_test_types.items()}
+    
     # Map the test names to their critical status, defaulting to False if not found
     df['is_critical'] = df['test_name'].map(critical_test_map).fillna(False)
-
+    
     # Classify Clinical Severity (e.g., Anemia)
     if 'test_name' in df.columns and 'result_value' in df.columns:
         anemia_mask = df['test_name'].str.contains("Hemoglobin", case=False, na=False)
