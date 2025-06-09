@@ -1,14 +1,10 @@
 # sentinel_project_root/data_processing/enrichment.py
-#
-# PLATINUM STANDARD - Health Data Feature Engineering (V2.2 - Re-validated)
-# This module is re-validated to ensure full compatibility with the corrected
-# settings, enabling sophisticated clinical and programmatic feature creation.
+# Corrected version.
 
 import logging
 import pandas as pd
 import numpy as np
 
-# --- Core Application Imports ---
 try:
     from config.settings import settings
 except ImportError as e:
@@ -20,22 +16,16 @@ logger = logging.getLogger(__name__)
 
 
 def enrich_lab_results_with_features(df_labs: pd.DataFrame, df_program: pd.DataFrame) -> pd.DataFrame:
-    """
-    Enriches the lab results DataFrame with analytics-ready features like
-    Turnaround Time (TAT), clinical severity, and programmatic flags.
-    """
+    """Enriches lab results with TAT, clinical severity, and programmatic flags."""
     if not isinstance(df_labs, pd.DataFrame) or df_labs.empty:
-        logger.warning("Lab results DataFrame is empty. Skipping feature enrichment.")
         return pd.DataFrame()
 
     df = df_labs.copy()
 
-    # --- 1. Calculate Test Turnaround Time (TAT) ---
     if 'result_date' in df.columns and 'sample_collection_date' in df.columns:
         df['turn_around_time_days'] = (df['result_date'] - df['sample_collection_date']).dt.total_seconds() / (24 * 3600)
         df['turn_around_time_days'] = df['turn_around_time_days'].clip(lower=0)
 
-    # --- 2. Classify Clinical Severity ---
     if 'test_name' in df.columns and 'result_value' in df.columns:
         anemia_mask = df['test_name'].str.contains("Hemoglobin", case=False, na=False)
         hb_values = pd.to_numeric(df.loc[anemia_mask, 'result_value'], errors='coerce')
@@ -47,7 +37,6 @@ def enrich_lab_results_with_features(df_labs: pd.DataFrame, df_program: pd.DataF
         choices = ['Severe', 'Moderate', 'Mild']
         df.loc[anemia_mask, 'anemia_severity'] = np.select(conditions, choices, default='Normal')
 
-    # --- 3. Generate Programmatic Flags ---
     if 'test_name' in df.columns and 'test_result' in df.columns and not df_program.empty:
         positive_hiv_mask = (df['test_name'].str.contains("HIV", na=False)) & (df['test_result'] == 'Positive')
         linked_patients_hiv = df_program[df_program['program_name'] == 'HIV Care']['patient_id'].unique()
@@ -57,45 +46,38 @@ def enrich_lab_results_with_features(df_labs: pd.DataFrame, df_program: pd.DataF
         confirmed_patients_tb = df[df['test_name'].str.contains("GeneXpert", case=False, na=False)]['patient_id'].unique()
         df['is_tb_positive_unconfirmed'] = sputum_positive_mask & (~df['patient_id'].isin(confirmed_patients_tb))
 
-    logger.info(f"Lab results enriched. Added {len(df.columns) - len(df_labs.columns)} new feature columns.")
     return df
 
 
 def enrich_health_records_with_features(df_health: pd.DataFrame) -> pd.DataFrame:
     """Enriches the primary health records DataFrame with ML-ready features."""
     if not isinstance(df_health, pd.DataFrame) or df_health.empty:
-        logger.warning("Health records DataFrame is empty. Skipping enrichment.")
         return pd.DataFrame()
 
     df = df_health.copy()
     num_records = len(df)
-    logger.debug(f"Starting feature enrichment for {num_records} health records.")
 
-    # --- Vectorized Vital Sign Flags ---
+    # --- THE FIX: This line now works because the attribute exists in settings. ---
     df['is_high_fever'] = df.get('body_temperature_celsius', 0) > settings.thresholds.body_temp_high_fever_c
+    
     df['is_spo2_critical'] = df.get('spo2_percentage', 100) < settings.thresholds.spo2_critical_low_pct
     df['abnormal_vital_count'] = df[['is_high_fever', 'is_spo2_critical']].sum(axis=1)
 
-    # --- Temporal Features ---
     if 'encounter_date' in df.columns and 'patient_id' in df.columns:
         df = df.sort_values(by=['patient_id', 'encounter_date'])
         df['days_since_last_visit'] = df.groupby('patient_id')['encounter_date'].diff().dt.days.fillna(0).astype(int)
 
-    # --- Demographic Features ---
     if 'age' in df.columns:
         age_bins = [0, 5, 17, 45, 65, np.inf]
         age_labels = ['Infant/Toddler (0-5)', 'Child/Adolescent (6-17)', 'Adult (18-45)', 'Middle-Aged (46-65)', 'Senior (65+)']
         df['age_group'] = pd.cut(df['age'], bins=age_bins, labels=age_labels, right=False)
 
-    # --- Mock/Placeholder Features for ML Model ---
     if 'bmi' not in df.columns:
         df['bmi'] = np.random.normal(loc=22, scale=4, size=num_records).round(1).clip(15, 40)
     if 'is_smoker' not in df.columns:
         df['is_smoker'] = np.random.choice([True, False], size=num_records, p=[0.15, 0.85])
     if 'has_chronic_condition' not in df.columns:
         chronic_conditions_list = ['HIV', 'Tuberculosis', 'Diabetes']
-        # Ensure primary_diagnosis is string type to prevent errors with .isin
         df['has_chronic_condition'] = df['primary_diagnosis'].astype(str).isin(chronic_conditions_list)
 
-    logger.info(f"Health records enriched. Added {len(df.columns) - len(df_health.columns)} new columns.")
     return df
