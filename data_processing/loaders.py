@@ -1,15 +1,14 @@
 # sentinel_project_root/data_processing/loaders.py
 #
-# PLATINUM STANDARD - Unified Data Loading Engine
-# This module provides a single, robust, and configuration-driven class
-# for loading all data sources (CSVs, GeoJSON, ML models, etc.) into the
-# Sentinel application. It ensures data is clean and typed on load.
+# PLATINUM STANDARD - Unified Data Loading Engine (V2 - Public Health Mission Upgrade)
+# This module is upgraded to ingest a comprehensive suite of public health datasets,
+# including programmatic, adherence, and contact tracing data.
 
 import logging
 import pandas as pd
 import joblib
 from pathlib import Path
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, List
 
 # --- Core Application Imports ---
 try:
@@ -43,20 +42,16 @@ class DataLoader:
     def load_csv(self, file_path: Path, date_cols: Optional[list] = None) -> pd.DataFrame:
         """
         Loads a CSV file and applies a standardized cleaning pipeline.
-
-        Args:
-            file_path: The path to the CSV file, relative to the data source directory.
-            date_cols: A list of columns to be parsed as dates.
-
-        Returns:
-            A cleaned and standardized pandas DataFrame.
+        This method is designed to be resilient, returning an empty DataFrame
+        if the source file is missing or critically malformed.
         """
         full_path = self._get_path(file_path)
         log_ctx = f"CSV({full_path.name})"
         logger.debug(f"[{log_ctx}] Attempting to load data from {full_path}")
 
         if not full_path.exists():
-            logger.error(f"[{log_ctx}] File not found. Returning empty DataFrame.")
+            # This is a common, non-critical scenario (e.g., an optional dataset is not present).
+            logger.warning(f"[{log_ctx}] Source file not found. Returning empty DataFrame.")
             return pd.DataFrame()
 
         try:
@@ -65,7 +60,7 @@ class DataLoader:
                 logger.warning(f"[{log_ctx}] File is empty.")
                 return pd.DataFrame()
 
-            # PLATINUM STANDARD: Automatically apply cleaning pipeline on load.
+            # Automatically apply cleaning pipeline on load.
             pipeline = DataPipeline(df).clean_column_names()
             if date_cols:
                 pipeline.convert_date_columns(date_cols)
@@ -78,30 +73,8 @@ class DataLoader:
             logger.critical(f"[{log_ctx}] CRITICAL ERROR loading or processing file: {e}", exc_info=True)
             return pd.DataFrame()
 
-    def load_geojson(self, file_path: Path) -> Optional[Dict[str, Any]]:
-        """
-        Loads a GeoJSON file with robust error handling.
-
-        Args:
-            file_path: The path to the GeoJSON file.
-
-        Returns:
-            A dictionary representing the GeoJSON data, or None on failure.
-        """
-        full_path = self._get_path(file_path)
-        return robust_json_load(full_path, "GeoJSON")
-
     def load_ml_model(self, model_path: Path) -> Optional[Any]:
-        """
-        Loads a serialized machine learning model (e.g., scikit-learn pipeline)
-        from a .joblib or .pkl file.
-
-        Args:
-            model_path: The path to the serialized model file.
-
-        Returns:
-            The deserialized Python object (e.g., a scikit-learn model), or None.
-        """
+        """Loads a serialized machine learning model."""
         log_ctx = f"ML_Model({model_path.name})"
         logger.debug(f"[{log_ctx}] Attempting to load model from {model_path}")
         if not model_path.exists():
@@ -115,40 +88,26 @@ class DataLoader:
             logger.critical(f"[{log_ctx}] CRITICAL ERROR loading model: {e}", exc_info=True)
             return None
 
-# --- Singleton Instance and Public API Functions ---
-# This pattern provides a single, globally available instance of the loader,
-# while the functions below offer a clean, semantic API to the rest of the app.
+
+# --- Singleton Instances for Different Directories ---
 _data_loader = DataLoader(settings.directories.data_sources)
-_asset_loader = DataLoader(settings.directories.assets)
 _model_loader = DataLoader(settings.directories.ml_models)
 
+
+# --- Public API Functions for Data Loading ---
 
 def load_health_records() -> pd.DataFrame:
     """Loads and cleans the primary health records dataset."""
     return _data_loader.load_csv(
-        settings.health_records_path,
-        date_cols=['encounter_date']
-    )
-
-def load_iot_records() -> pd.DataFrame:
-    """Loads and cleans IoT environmental records."""
-    return _data_loader.load_csv(
-        settings.iot_records_path,
-        date_cols=['timestamp']
+        settings.health_records_path, date_cols=['encounter_date']
     )
 
 def load_lab_results() -> pd.DataFrame:
     """Loads and cleans laboratory results data."""
+    # Settings now points to the single, comprehensive lab results file
     return _data_loader.load_csv(
         settings.lab_results_path,
         date_cols=['sample_collection_date', 'result_date']
-    )
-
-def load_supply_utilization() -> pd.DataFrame:
-    """Loads and cleans supply utilization/consumption data."""
-    return _data_loader.load_csv(
-        settings.supply_utilization_path,
-        date_cols=['report_date']
     )
 
 def load_zone_data() -> pd.DataFrame:
@@ -157,18 +116,15 @@ def load_zone_data() -> pd.DataFrame:
     if 'zone_id' in attributes_df.columns:
         attributes_df['zone_id'] = attributes_df['zone_id'].astype(str)
 
-    geo_data = _data_loader.load_geojson(settings.zone_geometries_path)
+    geo_data = robust_json_load(settings.zone_geometries_path, "GeoJSON")
     geometries_df = pd.DataFrame()
 
     if geo_data and isinstance(geo_data.get('features'), list):
         try:
             geometries_list = [
-                {
-                    "zone_id": str(feat["properties"]["zone_id"]),
-                    "geometry": feat["geometry"]
-                }
+                {"zone_id": str(feat["properties"]["zone_id"]), "geometry": feat["geometry"]}
                 for feat in geo_data["features"]
-                if "properties" in feat and "zone_id" in feat["properties"] and "geometry" in feat
+                if feat.get("properties") and feat.get("geometry") and feat["properties"].get("zone_id") is not None
             ]
             geometries_df = pd.DataFrame(geometries_list)
         except (KeyError, TypeError) as e:
@@ -176,13 +132,30 @@ def load_zone_data() -> pd.DataFrame:
 
     if attributes_df.empty: return geometries_df
     if geometries_df.empty: return attributes_df
-
     return pd.merge(attributes_df, geometries_df, on="zone_id", how="outer")
+
+def load_supply_utilization() -> pd.DataFrame:
+    """Loads and cleans supply utilization/consumption data."""
+    return _data_loader.load_csv(
+        settings.supply_utilization_path, date_cols=['report_date']
+    )
+
+def load_program_outcomes() -> pd.DataFrame:
+    """Loads programmatic outcomes data (e.g., linkage to care)."""
+    # Assuming path is defined in an extended settings file, or fallback
+    path = getattr(settings, "program_outcomes_path", Path("program_outcomes_synthetic.csv"))
+    return _data_loader.load_csv(path, date_cols=['diagnosis_date', 'treatment_start_date', 'outcome_date'])
+
+def load_contact_tracing() -> pd.DataFrame:
+    """Loads contact tracing data for infectious diseases like TB."""
+    path = getattr(settings, "contact_tracing_path", Path("contact_tracing_synthetic.csv"))
+    return _data_loader.load_csv(path, date_cols=['index_patient_diagnosis_date', 'contact_date', 'evaluation_date'])
+
+def load_ntd_mass_drug_admin() -> pd.DataFrame:
+    """Loads NTD Mass Drug Administration (MDA) program data."""
+    path = getattr(settings, "ntd_mda_path", Path("ntd_mda_synthetic.csv"))
+    return _data_loader.load_csv(path, date_cols=['campaign_date'])
 
 def load_ml_model(model_path: Path) -> Optional[Any]:
     """Loads a serialized machine learning model."""
     return _model_loader.load_ml_model(model_path)
-
-def load_json_asset(asset_path: Path) -> Optional[Dict[str, Any]]:
-    """Loads a generic JSON asset file."""
-    return robust_json_load(_asset_loader.base_dir / asset_path, "JSON Asset")
