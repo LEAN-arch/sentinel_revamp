@@ -1,5 +1,5 @@
 # sentinel_project_root/analytics/aggregation.py
-# Corrected version.
+# Final corrected version.
 
 import logging
 import pandas as pd
@@ -46,14 +46,11 @@ def aggregate_zonal_stats(
     if df_zones.empty: return pd.DataFrame()
 
     df_merged = df_zones.copy()
-    
-    # --- THE FIX: Join labs with health data to get zone_id ---
-    if not df_labs.empty and not df_health.empty and 'encounter_id' in df_labs.columns and 'encounter_id' in df_health.columns:
-        # Select only the necessary columns for the join to be efficient
+
+    # Create a health context dataframe with only necessary columns for joining
+    health_context = pd.DataFrame()
+    if 'encounter_id' in df_health.columns and 'zone_id' in df_health.columns:
         health_context = df_health[['encounter_id', 'zone_id']].drop_duplicates()
-        df_labs_with_zone = pd.merge(df_labs, health_context, on='encounter_id', how='left')
-    else:
-        df_labs_with_zone = pd.DataFrame() # Ensure it exists but is empty
 
     if not df_health.empty:
         health_agg = df_health.groupby('zone_id').agg(
@@ -61,22 +58,38 @@ def aggregate_zonal_stats(
             total_encounters=('encounter_id', 'nunique')).reset_index()
         df_merged = pd.merge(df_merged, health_agg, on='zone_id', how='left')
 
-    if not df_labs_with_zone.empty:
-        lab_agg = df_labs_with_zone.groupby('zone_id').agg(
-            avg_tat_days=('turn_around_time_days', 'mean'),
-            total_tests_processed=('test_id', 'nunique'),
-            rejection_rate=('is_rejected', 'mean')).reset_index()
-        lab_agg['rejection_rate'] = (lab_agg['rejection_rate'] * 100).fillna(0)
-        df_merged = pd.merge(df_merged, lab_agg, on='zone_id', how='left')
+    if not df_labs.empty and not health_context.empty:
+        df_labs_with_zone = pd.merge(df_labs, health_context, on='encounter_id', how='left').dropna(subset=['zone_id'])
+        
+        if not df_labs_with_zone.empty:
+            lab_agg = df_labs_with_zone.groupby('zone_id').agg(
+                avg_tat_days=('turn_around_time_days', 'mean'),
+                total_tests_processed=('test_id', 'nunique'),
+                rejection_rate=('is_rejected', 'mean')).reset_index()
+            lab_agg['rejection_rate'] = (lab_agg['rejection_rate'] * 100).fillna(0)
 
-    # ... (rest of the function is the same)
-    if not df_program.empty and 'zone_id' in df_program: # Assuming program data might have zone_id directly
-        program_agg = df_program.groupby('zone_id').agg(
-            hiv_linkage_rate=('is_linked_to_care_hiv', 'mean'),
-            tb_treatment_success_rate=('is_treatment_success_tb', 'mean')).reset_index()
-        program_agg['hiv_linkage_rate'] = (program_agg['hiv_linkage_rate'] * 100).fillna(0)
-        program_agg['tb_treatment_success_rate'] = (program_agg['tb_treatment_success_rate'] * 100).fillna(0)
-        df_merged = pd.merge(df_merged, program_agg, on='zone_id', how='left')
+            # --- THE FIX: Create is_positive flag before aggregation ---
+            df_labs_with_zone['is_positive'] = (df_labs_with_zone['test_result'] == 'Positive')
+
+            for test_key in settings.key_test_types.keys():
+                positivity_df = df_labs_with_zone[df_labs_with_zone['test_name'] == test_key]
+                if not positivity_df.empty:
+                    positivity_agg = positivity_df.groupby('zone_id')['is_positive'].mean().reset_index()
+                    positivity_agg.rename(columns={'is_positive': f'positivity_{test_key.lower()}'}, inplace=True)
+                    lab_agg = pd.merge(lab_agg, positivity_agg, on='zone_id', how='left')
+            
+            df_merged = pd.merge(df_merged, lab_agg, on='zone_id', how='left')
+
+    if not df_program.empty:
+        # Assuming program data is joined similarly if it doesn't have zone_id
+        df_program_with_zone = pd.merge(df_program, df_health[['patient_id', 'zone_id']].drop_duplicates(subset=['patient_id']), on='patient_id', how='left').dropna(subset=['zone_id'])
+        if not df_program_with_zone.empty:
+            program_agg = df_program_with_zone.groupby('zone_id').agg(
+                hiv_linkage_rate=('is_linked_to_care_hiv', 'mean'),
+                tb_treatment_success_rate=('is_treatment_success_tb', 'mean')).reset_index()
+            program_agg['hiv_linkage_rate'] = (program_agg['hiv_linkage_rate'] * 100).fillna(0)
+            program_agg['tb_treatment_success_rate'] = (program_agg['tb_treatment_success_rate'] * 100).fillna(0)
+            df_merged = pd.merge(df_merged, program_agg, on='zone_id', how='left')
 
     numeric_cols = df_merged.select_dtypes(include=np.number).columns.tolist()
     for col in numeric_cols:
